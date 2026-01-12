@@ -1,64 +1,64 @@
-\# Notely
+# Notely
 
 
 
-\*\*Notely\*\* is a modern, privacy-focused Android note-taking application built entirely with \*\*Kotlin\*\* and \*\*Jetpack Compose\*\*. It is designed to keep your thoughts secure with built-in PIN protection, auto-lock features, and screenshot prevention, all wrapped in a sleek Material 3 interface.
+**Notely** is a modern, privacy-focused Android note-taking application built entirely with **Kotlin** and **Jetpack Compose**. It is designed to keep your thoughts secure with built-in PIN protection, auto-lock features, and screenshot prevention, all wrapped in a sleek Material 3 interface.
 
 
 
-\## Key Features
+## Key Features
 
 
 
-\### Privacy \& Security
+### Privacy \& Security
 
-\* \*\*PIN Protection:\*\* Secure login system with a 4-digit PIN.
+* **PIN Protection:** Secure login system with a 4-digit PIN.
 
-\* \*\*Auto-Lock:\*\* Automatically locks the app after a user-defined period of inactivity (Immediately to 30 minutes).
+* **Auto-Lock:** Automatically locks the app after a user-defined period of inactivity (Immediately to 30 minutes).
 
-\* \*\*Privacy Mode:\*\* Prevents screenshots and hides app content in the "Recent Apps" overview.
-
-
-
-\### Customization \& UI
-
-\* \*\*Material 3 Design:\*\* Modern, edge-to-edge UI with dynamic coloring.
-
-\* \*\*Dark/Light Mode:\*\* Full theme support with a one-tap toggle.
-
-\* \*\*Custom Fonts:\*\* Choose from multiple font styles (Modern, Elegant, Handwriting, Code) for each note.
+* **Privacy Mode:** Prevents screenshots and hides app content in the "Recent Apps" overview.
 
 
 
-\### Productivity
+### Customization \& UI
 
-\* \*\*Smart Search:\*\* Filter notes instantly by title, content, or tags.
+* **Material 3 Design:** Modern, edge-to-edge UI with dynamic coloring.
 
-\* \*\*Tagging System:\*\* Organize notes with custom tags (e.g., #work, #ideas).
+* **Dark/Light Mode:** Full theme support with a one-tap toggle.
 
-\* \*\*Favorites:\*\* Pin important notes to the top or mark them for quick access.
-
-
-
-\## Tech Stack
+* **Custom Fonts:** Choose from multiple font styles (Modern, Elegant, Handwriting, Code) for each note.
 
 
 
-\* \*\*Language:\*\* Kotlin
+### Productivity
 
-\* \*\*UI Framework:\*\* Jetpack Compose (Material 3)
+* **Smart Search:** Filter notes instantly by title, content, or tags.
 
-\* \*\*Architecture:\*\* MVVM (Model-View-ViewModel)
+* **Tagging System:** Organize notes with custom tags (e.g., #work, #ideas).
 
-\* \*\*Database:\*\* Room (SQLite)
-
-\* \*\*Concurrency:\*\* Kotlin Coroutines \& Flow
-
-\* \*\*Icons:\*\* Material Icons Extended
+* **Favorites:** Pin important notes to the top or mark them for quick access.
 
 
 
-\## License
+## Tech Stack
+
+
+
+* **Language:** Kotlin
+
+* **UI Framework:** Jetpack Compose (Material 3)
+
+* **Architecture:** MVVM (Model-View-ViewModel)
+
+* **Database:** Room (SQLite)
+
+* **Concurrency:** Kotlin Coroutines \& Flow
+
+* **Icons:** Material Icons Extended
+
+
+
+## License
 
 
 
