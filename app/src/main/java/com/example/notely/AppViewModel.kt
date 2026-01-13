@@ -88,9 +88,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     val allNotes = noteDao.getAllNotes()
 
-    fun addNote(title: String, content: String, fontName: String = "Default", tags: String = "") {
+    fun addNote(
+        title: String,
+        content: String,
+        fontName: String,
+        tags: String,
+        styleMetadata: String
+    ) {
         viewModelScope.launch {
-            noteDao.insert(Note(title = title, content = content, fontName = fontName, tags = tags))
+            noteDao.insert(Note(
+                title = title,
+                content = content,
+                fontName = fontName,
+                tags = tags,
+                styleMetadata = styleMetadata
+            ))
         }
     }
 

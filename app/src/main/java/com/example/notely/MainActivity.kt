@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -41,6 +42,10 @@ import androidx.core.view.WindowCompat
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
 
 enum class AppScreen { NotesList, Editor, Settings, ChangePin }
 enum class ChangePinStage { VerifyOld, SetNew }
@@ -88,6 +93,8 @@ class MainActivity : ComponentActivity() {
 fun AppNavigation(viewModel: AppViewModel) {
     val isAuthenticated by viewModel.isAuthenticated.collectAsState()
     val isPinSet by viewModel.isPinSet.collectAsState()
+
+    // Navigation State
     var currentScreen by remember { mutableStateOf(AppScreen.NotesList) }
     var currentNote by remember { mutableStateOf<Note?>(null) }
     var changePinStage by remember { mutableStateOf(ChangePinStage.VerifyOld) }
@@ -95,157 +102,95 @@ fun AppNavigation(viewModel: AppViewModel) {
     if (isAuthenticated) {
         when (currentScreen) {
             AppScreen.NotesList -> {
+                // No BackHandler here -> Default behavior (Exits App)
                 NotesScreen(
                     viewModel = viewModel,
-                    onAddClick = { currentNote = null; currentScreen = AppScreen.Editor },
-                    onNoteClick = { note -> currentNote = note; currentScreen = AppScreen.Editor },
-                    onSettingsClick = { currentScreen = AppScreen.Settings }
+                    onAddClick = {
+                        currentNote = null
+                        currentScreen = AppScreen.Editor
+                    },
+                    onNoteClick = { note ->
+                        currentNote = note
+                        currentScreen = AppScreen.Editor
+                    },
+                    onSettingsClick = {
+                        currentScreen = AppScreen.Settings
+                    }
                 )
             }
             AppScreen.Editor -> {
+                // HANDLE BACK PRESS: Go back to Notes List
+                BackHandler {
+                    currentScreen = AppScreen.NotesList
+                    currentNote = null
+                }
+
                 NoteEditorScreen(
                     noteToEdit = currentNote,
-                    // Pass tags to save function
-                    onSave = { title, content, fontName, tags ->
+                    onSave = { title, content, fontName, tags, styleData ->
                         if (currentNote == null) {
-                            viewModel.addNote(title, content, fontName, tags)
+                            viewModel.addNote(title, content, fontName, tags, styleData)
                         } else {
                             viewModel.updateNote(
-                                currentNote!!.copy(title = title, content = content, fontName = fontName, tags = tags)
+                                currentNote!!.copy(
+                                    title = title,
+                                    content = content,
+                                    fontName = fontName,
+                                    tags = tags,
+                                    styleMetadata = styleData
+                                )
                             )
                         }
                         currentScreen = AppScreen.NotesList
                         currentNote = null
                     },
-                    onCancel = { currentScreen = AppScreen.NotesList; currentNote = null }
+                    onCancel = {
+                        currentScreen = AppScreen.NotesList
+                        currentNote = null
+                    }
                 )
             }
             AppScreen.Settings -> {
+                // HANDLE BACK PRESS: Go back to Notes List
+                BackHandler {
+                    currentScreen = AppScreen.NotesList
+                }
+
                 SettingsScreen(
                     onBackClick = { currentScreen = AppScreen.NotesList },
-                    onChangePinClick = { changePinStage = ChangePinStage.VerifyOld; currentScreen = AppScreen.ChangePin },
+                    onChangePinClick = {
+                        changePinStage = ChangePinStage.VerifyOld
+                        currentScreen = AppScreen.ChangePin
+                    },
                     viewModel = viewModel
                 )
             }
             AppScreen.ChangePin -> {
+                // HANDLE BACK PRESS: Go back to Settings
+                BackHandler {
+                    currentScreen = AppScreen.Settings
+                }
+
                 ChangePinScreen(
                     stage = changePinStage,
                     viewModel = viewModel,
-                    onSuccess = { changePinStage = ChangePinStage.SetNew },
-                    onFinished = { currentScreen = AppScreen.Settings },
-                    onCancel = { currentScreen = AppScreen.Settings }
+                    onSuccess = {
+                        changePinStage = ChangePinStage.SetNew
+                    },
+                    onFinished = {
+                        currentScreen = AppScreen.Settings
+                    },
+                    onCancel = {
+                        currentScreen = AppScreen.Settings
+                    }
                 )
             }
         }
     } else {
-        if (isPinSet) PinScreen(title = "", viewModel = viewModel, isSetup = false)
-        else PinScreen(title = "Setup Notely PIN", viewModel = viewModel, isSetup = true)
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun NoteEditorScreen(
-    noteToEdit: Note?,
-    onSave: (String, String, String, String) -> Unit, // Added Tags to callback
-    onCancel: () -> Unit
-) {
-    var title by remember { mutableStateOf(noteToEdit?.title ?: "") }
-    var content by remember { mutableStateOf(noteToEdit?.content ?: "") }
-    var tags by remember { mutableStateOf(noteToEdit?.tags ?: "") } // Tags State
-    var currentFontName by remember { mutableStateOf(noteToEdit?.fontName ?: "Default") }
-    var showFontMenu by remember { mutableStateOf(false) }
-
-    val availableFonts = listOf("Default", "Modern", "Elegant", "Handwriting", "Code")
-
-    Scaffold(
-        modifier = Modifier.safeDrawingPadding(),
-        topBar = {
-            TopAppBar(
-                title = { Text(if (noteToEdit == null) "New Note" else "Edit Note") },
-                navigationIcon = {
-                    IconButton(onClick = onCancel) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
-                    }
-                },
-                actions = {
-                    Box {
-                        IconButton(onClick = { showFontMenu = true }) {
-                            Icon(Icons.Default.MoreVert, "Fonts")
-                        }
-                        DropdownMenu(expanded = showFontMenu, onDismissRequest = { showFontMenu = false }) {
-                            availableFonts.forEach { font ->
-                                DropdownMenuItem(
-                                    text = { Text(font, fontFamily = getFontFamily(font)) },
-                                    onClick = { currentFontName = font; showFontMenu = false }
-                                )
-                            }
-                        }
-                    }
-                    IconButton(onClick = { onSave(title, content, currentFontName, tags) }) {
-                        Icon(Icons.Default.Check, "Save")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .padding(16.dp)
-                .fillMaxSize()
-        ) {
-            // Title
-            TextField(
-                value = title,
-                onValueChange = { title = it },
-                placeholder = { Text("Title", style = MaterialTheme.typography.headlineSmall) },
-                textStyle = MaterialTheme.typography.headlineSmall.copy(fontFamily = getFontFamily(currentFontName)),
-                modifier = Modifier.fillMaxWidth(),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent
-                )
-            )
-
-            // Tags Input
-            TextField(
-                value = tags,
-                onValueChange = { tags = it },
-                placeholder = { Text("Tags (comma separated)", style = MaterialTheme.typography.bodyMedium) },
-                textStyle = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.fillMaxWidth(),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedIndicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                    unfocusedIndicatorColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
-                ),
-                singleLine = true
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Content
-            TextField(
-                value = content,
-                onValueChange = { content = it },
-                placeholder = { Text("Start typing...") },
-                textStyle = TextStyle(
-                    fontFamily = getFontFamily(currentFontName),
-                    fontSize = MaterialTheme.typography.bodyLarge.fontSize,
-                    color = MaterialTheme.colorScheme.onSurface
-                ),
-                modifier = Modifier.fillMaxSize(),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent
-                )
-            )
+        if (isPinSet) {
+            PinScreen(title = "", viewModel = viewModel, isSetup = false)
+        } else {
+            PinScreen(title = "Setup Notely PIN", viewModel = viewModel, isSetup = true)
         }
     }
 }
@@ -266,7 +211,7 @@ fun NotesScreen(
     val filteredNotes = notes.filter {
         it.title.contains(searchQuery, ignoreCase = true) ||
                 it.content.contains(searchQuery, ignoreCase = true) ||
-                it.tags.contains(searchQuery, ignoreCase = true) // <-- SEARCH TAGS NOW
+                it.tags.contains(searchQuery, ignoreCase = true)
     }
 
     Scaffold(
@@ -367,15 +312,33 @@ fun NoteCard(
             }
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Content
+            val styledContent = remember(note.content, note.styleMetadata) {
+                val spans = StyleSerializer.deserialize(note.styleMetadata)
+                buildAnnotatedString {
+                    append(note.content)
+                    spans.forEach { span ->
+                        if (span.end <= note.content.length) {
+                            addStyle(
+                                style = SpanStyle(
+                                    fontWeight = if (span.isBold) FontWeight.Bold else FontWeight.Normal,
+                                    fontStyle = if (span.isItalic) FontStyle.Italic else FontStyle.Normal
+                                ),
+                                start = span.start,
+                                end = span.end
+                            )
+                        }
+                    }
+                }
+            }
+
             Text(
-                text = note.content,
+                text = styledContent,
                 style = MaterialTheme.typography.bodyMedium,
                 fontFamily = getFontFamily(note.fontName),
                 maxLines = 3
             )
 
-            // TAGS DISPLAY ROW (New)
+            // TAGS DISPLAY ROW
             if (note.tags.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

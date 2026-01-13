@@ -11,24 +11,45 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NoteEditorScreen(
     noteToEdit: Note?,
-    onSave: (String, String, String) -> Unit, // Accepts: Title, Content, FontName
+    onSave: (String, String, String, String, String) -> Unit,
     onCancel: () -> Unit
 ) {
     // 1. STATE VARIABLES
     var title by remember { mutableStateOf(noteToEdit?.title ?: "") }
-    var content by remember { mutableStateOf(noteToEdit?.content ?: "") }
-
-    // Default to "Default" font if none is saved
+    var tags by remember { mutableStateOf(noteToEdit?.tags ?: "") }
     var currentFontName by remember { mutableStateOf(noteToEdit?.fontName ?: "Default") }
     var showFontMenu by remember { mutableStateOf(false) }
 
-    // This list must match the keys in FontUtils.kt
     val availableFonts = listOf("Default", "Modern", "Elegant", "Handwriting", "Code")
+
+    // --- DYNAMIC CAPABILITY CHECK ---
+    val canBold = remember(currentFontName) { supportsBold(currentFontName) }
+    val canItalic = remember(currentFontName) { supportsItalic(currentFontName) }
+
+    // 2. RICH TEXT STATE INITIALIZATION
+    val richTextState = remember {
+        RichTextState(
+            initialText = noteToEdit?.content ?: "",
+            initialStyles = noteToEdit?.styleMetadata ?: ""
+        )
+    }
+
+    // This local state tracks the TextField's content and cursor
+    var textFieldValue by remember {
+        mutableStateOf(TextFieldValue(richTextState.text))
+    }
 
     Scaffold(
         topBar = {
@@ -40,7 +61,48 @@ fun NoteEditorScreen(
                     }
                 },
                 actions = {
-                    // --- FONT SELECTOR MENU ---
+                    // --- BOLD BUTTON ---
+                    if (canBold) {
+                        IconButton(onClick = {
+                            richTextState.toggleSelection(
+                                start = textFieldValue.selection.min,
+                                end = textFieldValue.selection.max,
+                                toggleBold = true,
+                                toggleItalic = false
+                            )
+                        }) {
+                            val tint = if (richTextState.isTypingBold) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            Text(
+                                "B",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = MaterialTheme.typography.titleLarge.fontSize,
+                                color = tint
+                            )
+                        }
+                    }
+
+                    // --- ITALIC BUTTON ---
+                    if (canItalic) {
+                        IconButton(onClick = {
+                            richTextState.toggleSelection(
+                                start = textFieldValue.selection.min,
+                                end = textFieldValue.selection.max,
+                                toggleBold = false,
+                                toggleItalic = true
+                            )
+                        }) {
+                            val tint = if (richTextState.isTypingItalic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            Text(
+                                "I",
+                                fontStyle = FontStyle.Italic,
+                                fontSize = MaterialTheme.typography.titleLarge.fontSize,
+                                fontFamily = FontFamily.Serif,
+                                color = tint
+                            )
+                        }
+                    }
+
+                    // --- FONT MENU ---
                     Box {
                         IconButton(onClick = { showFontMenu = true }) {
                             Icon(Icons.Default.MoreVert, "Fonts")
@@ -57,6 +119,8 @@ fun NoteEditorScreen(
                                     onClick = {
                                         currentFontName = font
                                         showFontMenu = false
+                                        if (!supportsBold(font)) richTextState.isTypingBold = false
+                                        if (!supportsItalic(font)) richTextState.isTypingItalic = false
                                     }
                                 )
                             }
@@ -64,7 +128,15 @@ fun NoteEditorScreen(
                     }
 
                     // --- SAVE BUTTON ---
-                    IconButton(onClick = { onSave(title, content, currentFontName) }) {
+                    IconButton(onClick = {
+                        onSave(
+                            title,
+                            richTextState.text,
+                            currentFontName,
+                            tags,
+                            StyleSerializer.serialize(richTextState.spans)
+                        )
+                    }) {
                         Icon(Icons.Default.Check, "Save")
                     }
                 }
@@ -77,19 +149,15 @@ fun NoteEditorScreen(
                 .padding(16.dp)
                 .fillMaxSize()
         ) {
-            // 2. TITLE INPUT
+            // TITLE
             TextField(
                 value = title,
                 onValueChange = { title = it },
                 placeholder = {
-                    Text(
-                        "Title",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                    )
+                    Text("Title", style = MaterialTheme.typography.headlineSmall)
                 },
                 textStyle = MaterialTheme.typography.headlineSmall.copy(
-                    fontFamily = getFontFamily(currentFontName) // Live Preview of Font
+                    fontFamily = getFontFamily(currentFontName)
                 ),
                 modifier = Modifier.fillMaxWidth(),
                 colors = TextFieldDefaults.colors(
@@ -100,20 +168,45 @@ fun NoteEditorScreen(
                 )
             )
 
+            // TAGS INPUT
+            TextField(
+                value = tags,
+                onValueChange = { tags = it },
+                placeholder = { Text("Tags (comma separated)", style = MaterialTheme.typography.bodyMedium) },
+                textStyle = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.fillMaxWidth(),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedIndicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                    unfocusedIndicatorColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+                ),
+                singleLine = true
+            )
+
             Spacer(modifier = Modifier.height(8.dp))
 
-            // 3. CONTENT INPUT
+            // CONTENT (RICH TEXT EDITOR)
             TextField(
-                value = content,
-                onValueChange = { content = it },
-                placeholder = {
-                    Text(
-                        "Start typing...",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                    )
+                value = textFieldValue,
+                onValueChange = { newValue ->
+                    val cursorIndex = newValue.selection.start
+                    richTextState.onTextChange(newValue.text, cursorIndex)
+                    textFieldValue = newValue
                 },
+                placeholder = { Text("Start typing...") },
+
+                visualTransformation = remember(richTextState.spans, richTextState.text) {
+                    VisualTransformation { _ ->
+                        TransformedText(
+                            richTextState.getAnnotatedString(),
+                            OffsetMapping.Identity
+                        )
+                    }
+                },
+
                 textStyle = TextStyle(
-                    fontFamily = getFontFamily(currentFontName), // Live Preview of Font
+                    fontFamily = getFontFamily(currentFontName),
                     fontSize = MaterialTheme.typography.bodyLarge.fontSize,
                     color = MaterialTheme.colorScheme.onSurface
                 ),
