@@ -61,13 +61,6 @@ abstract class NoteDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: NoteDatabase? = null
 
-        // KEEP THIS: This manual migration is still needed for users upgrading from V1
-        private val MIGRATION_1_2 = object : Migration(1, 2) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE notes ADD COLUMN styleMetadata TEXT NOT NULL DEFAULT ''")
-            }
-        }
-
         fun getDatabase(context: Context): NoteDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -75,7 +68,7 @@ abstract class NoteDatabase : RoomDatabase() {
                     NoteDatabase::class.java,
                     "notely_database"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations()
                     .build()
 
                 INSTANCE = instance
