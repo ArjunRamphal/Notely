@@ -52,8 +52,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val pinManager = PinManager(application)
     private val _isAuthenticated = MutableStateFlow(false)
     val isAuthenticated = _isAuthenticated.asStateFlow()
+
+    // Check if PIN is set immediately
     private val _isPinSet = MutableStateFlow(pinManager.isPinSet())
     val isPinSet = _isPinSet.asStateFlow()
+
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage = _errorMessage.asStateFlow()
 
@@ -69,7 +72,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun checkPin(inputPin: String) {
-        if (inputPin == pinManager.getPin()) {
+        if (pinManager.checkPin(inputPin)) {
             _isAuthenticated.value = true
             _errorMessage.value = null
         } else {
@@ -79,7 +82,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun verifyOldPin(inputPin: String): Boolean {
-        return inputPin == pinManager.getPin()
+        return pinManager.checkPin(inputPin)
     }
 
     // --- NOTE LOGIC ---
