@@ -66,3 +66,9 @@ google-services.json
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Local Database files
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
