@@ -3,11 +3,14 @@ package com.example.notely
 import android.app.Activity
 import android.os.Bundle
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,8 +30,8 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,11 +40,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -56,6 +59,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Secure flag to prevent screenshots/recent apps preview
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
 
         setContent {
@@ -102,7 +106,6 @@ fun AppNavigation(viewModel: AppViewModel) {
     if (isAuthenticated) {
         when (currentScreen) {
             AppScreen.NotesList -> {
-                // No BackHandler here -> Default behavior (Exits App)
                 NotesScreen(
                     viewModel = viewModel,
                     onAddClick = {
@@ -119,12 +122,10 @@ fun AppNavigation(viewModel: AppViewModel) {
                 )
             }
             AppScreen.Editor -> {
-                // HANDLE BACK PRESS: Go back to Notes List
                 BackHandler {
                     currentScreen = AppScreen.NotesList
                     currentNote = null
                 }
-
                 NoteEditorScreen(
                     noteToEdit = currentNote,
                     onSave = { title, content, fontName, tags, styleData ->
@@ -151,11 +152,9 @@ fun AppNavigation(viewModel: AppViewModel) {
                 )
             }
             AppScreen.Settings -> {
-                // HANDLE BACK PRESS: Go back to Notes List
                 BackHandler {
                     currentScreen = AppScreen.NotesList
                 }
-
                 SettingsScreen(
                     onBackClick = { currentScreen = AppScreen.NotesList },
                     onChangePinClick = {
@@ -166,11 +165,9 @@ fun AppNavigation(viewModel: AppViewModel) {
                 )
             }
             AppScreen.ChangePin -> {
-                // HANDLE BACK PRESS: Go back to Settings
                 BackHandler {
                     currentScreen = AppScreen.Settings
                 }
-
                 ChangePinScreen(
                     stage = changePinStage,
                     viewModel = viewModel,
@@ -338,7 +335,6 @@ fun NoteCard(
                 maxLines = 3
             )
 
-            // TAGS DISPLAY ROW
             if (note.tags.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -375,6 +371,7 @@ fun SettingsScreen(
     onChangePinClick: () -> Unit,
     viewModel: AppViewModel
 ) {
+    val context = LocalContext.current
     val currentTimeout by viewModel.autoLockTimeout.collectAsState()
     var showTimeoutDialog by remember { mutableStateOf(false) }
     val timeoutOptions = mapOf(
@@ -384,6 +381,26 @@ fun SettingsScreen(
         1_800_000L to "30 Minutes",
         -1L to "Never"
     )
+
+    // --- EXPORT LAUNCHER ---
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        uri?.let {
+            viewModel.exportNotes(it)
+            Toast.makeText(context, "Exporting notes...", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // --- IMPORT LAUNCHER ---
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            viewModel.importNotes(it)
+            Toast.makeText(context, "Importing notes...", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Scaffold(
         modifier = Modifier.safeDrawingPadding(),
@@ -399,12 +416,15 @@ fun SettingsScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).padding(16.dp)) {
+            // PIN SETTINGS
             ListItem(
                 headlineContent = { Text("Change PIN") },
                 leadingContent = { Icon(Icons.Default.Lock, null) },
                 modifier = Modifier.clickable { onChangePinClick() }.fillMaxWidth()
             )
             HorizontalDivider()
+
+            // AUTO LOCK SETTINGS
             ListItem(
                 headlineContent = { Text("Auto-lock Timeout") },
                 supportingContent = { Text(timeoutOptions[currentTimeout] ?: "Immediately") },
@@ -412,7 +432,29 @@ fun SettingsScreen(
                 modifier = Modifier.clickable { showTimeoutDialog = true }.fillMaxWidth()
             )
             HorizontalDivider()
+
+            // DATA MANAGEMENT
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Data Management", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // EXPORT
+            ListItem(
+                headlineContent = { Text("Export Notes") },
+                supportingContent = { Text("Save backup to JSON") },
+                leadingContent = { Icon(Icons.Default.Upload, null) },
+                modifier = Modifier.clickable { exportLauncher.launch("notely_backup.json") }.fillMaxWidth()
+            )
+
+            // IMPORT
+            ListItem(
+                headlineContent = { Text("Import Notes") },
+                supportingContent = { Text("Restore from JSON") },
+                leadingContent = { Icon(Icons.Default.Download, null) },
+                modifier = Modifier.clickable { importLauncher.launch(arrayOf("application/json")) }.fillMaxWidth()
+            )
         }
+
         if (showTimeoutDialog) {
             AlertDialog(
                 onDismissRequest = { showTimeoutDialog = false },

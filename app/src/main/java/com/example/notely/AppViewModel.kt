@@ -2,11 +2,18 @@ package com.example.notely
 
 import android.app.Application
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.io.BufferedReader
+import java.io.InputStreamReader
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -123,6 +130,55 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val updatedNote = note.copy(isFavorite = !note.isFavorite)
             noteDao.update(updatedNote)
+        }
+    }
+
+    // --- IMPORT / EXPORT LOGIC ---
+    private val gson = Gson()
+
+    fun exportNotes(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // 1. Get snapshot of current notes
+                val notesList = allNotes.first()
+                // 2. Convert to JSON
+                val jsonString = gson.toJson(notesList)
+                // 3. Write to file
+                getApplication<Application>().contentResolver.openOutputStream(uri)?.use { outputStream ->
+                    outputStream.write(jsonString.toByteArray())
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun importNotes(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // 1. Read file content
+                val stringBuilder = StringBuilder()
+                getApplication<Application>().contentResolver.openInputStream(uri)?.use { inputStream ->
+                    BufferedReader(InputStreamReader(inputStream)).use { reader ->
+                        var line: String? = reader.readLine()
+                        while (line != null) {
+                            stringBuilder.append(line)
+                            line = reader.readLine()
+                        }
+                    }
+                }
+                // 2. Deserialize
+                val jsonString = stringBuilder.toString()
+                val type = object : TypeToken<List<Note>>() {}.type
+                val importedNotes: List<Note> = gson.fromJson(jsonString, type)
+
+                // 3. Insert (Reset ID to 0 to generate new IDs and avoid conflicts)
+                importedNotes.forEach { note ->
+                    noteDao.insert(note.copy(id = 0))
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 }
