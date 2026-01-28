@@ -1,75 +1,207 @@
 package com.example.notely
 
 import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import android.util.Base64
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
+import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.SecureRandom
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
 
 class PinManager(context: Context) {
 
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
+    // Standard SharedPreferences (We will only store ENCRYPTED blobs here)
+    private val sharedPreferences = context.getSharedPreferences("notely_secure_prefs", Context.MODE_PRIVATE)
 
-    private val sharedPreferences = EncryptedSharedPreferences.create(
-        context,
-        "notely_secure_prefs",
-        masterKey,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
+    private val KEY_ALIAS = "notely_pin_key"
+    private val ANDROID_KEYSTORE = "AndroidKeyStore"
+
+    // --- SECURITY CONFIGURATION ---
+    private val ITERATIONS = 100_000
+    private val KEY_LENGTH = 256
+    private val SALT_LENGTH = 16
+
+    private val MAX_ATTEMPTS = 5
+    private val LOCKOUT_DURATION_MS = 30_000L
+
+    init {
+        createKeyStoreKey()
+    }
 
     /**
-     * 1. Generates a random Salt.
-     * 2. Combines Salt + PIN.
-     * 3. Hashes the result.
-     * 4. Stores both the Salt and the Hash.
+     * 1. Generate Salt.
+     * 2. Slow Hash the PIN.
+     * 3. Concatenate Salt + Hash.
+     * 4. Encrypt the combined string using Android Keystore.
+     * 5. Save the encrypted blob to SharedPreferences.
      */
     fun savePin(pin: String) {
         val salt = generateSalt()
         val hash = hashPin(pin, salt)
 
+        // Combine them so we store everything in one encrypted package
+        val dataToStore = "$salt:$hash"
+
+        val encryptedData = encryptData(dataToStore)
+
         sharedPreferences.edit()
-            .putString("USER_PIN_HASH", hash)
-            .putString("USER_PIN_SALT", salt)
+            .putString("ENCRYPTED_PIN_DATA", encryptedData)
+            .putInt("FAILED_ATTEMPTS", 0)
+            .putLong("LOCKOUT_TIMESTAMP", 0)
             .apply()
     }
 
     /**
-     * 1. Retrieves the saved Salt.
-     * 2. Combines Saved Salt + Input PIN.
-     * 3. Hashes it.
-     * 4. Compares with stored Hash.
+     * 1. Retrieve encrypted blob.
+     * 2. Decrypt it using Android Keystore.
+     * 3. Split into Salt and Hash.
+     * 4. Re-hash input and compare.
      */
     fun checkPin(inputPin: String): Boolean {
-        val storedHash = sharedPreferences.getString("USER_PIN_HASH", null) ?: return false
-        val storedSalt = sharedPreferences.getString("USER_PIN_SALT", null) ?: return false
+        if (isLockedOut()) return false
 
-        val inputHash = hashPin(inputPin, storedSalt)
-        return storedHash == inputHash
+        val encryptedData = sharedPreferences.getString("ENCRYPTED_PIN_DATA", null) ?: return false
+
+        try {
+            val decryptedString = decryptData(encryptedData)
+            val parts = decryptedString.split(":")
+
+            if (parts.size != 2) return false
+
+            val storedSalt = parts[0]
+            val storedHash = parts[1]
+
+            val inputHash = hashPin(inputPin, storedSalt)
+
+            if (inputHash == storedHash) {
+                resetFailures()
+                return true
+            } else {
+                incrementFailures()
+                return false
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            // If decryption fails (e.g., biometrics changed, key invalidated), fail safely
+            return false
+        }
     }
 
     fun isPinSet(): Boolean {
-        return sharedPreferences.contains("USER_PIN_HASH")
+        return sharedPreferences.contains("ENCRYPTED_PIN_DATA")
     }
 
-    // --- Helpers ---
+    // --- ENCRYPTION LOGIC (Hardware Backed) ---
+
+    private fun createKeyStoreKey() {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
+        keyStore.load(null)
+
+        if (!keyStore.containsAlias(KEY_ALIAS)) {
+            val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+            val keyGenParameterSpec = KeyGenParameterSpec.Builder(
+                KEY_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .build()
+
+            keyGenerator.init(keyGenParameterSpec)
+            keyGenerator.generateKey()
+        }
+    }
+
+    private fun getSecretKey(): SecretKey {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
+        keyStore.load(null)
+        return keyStore.getKey(KEY_ALIAS, null) as SecretKey
+    }
+
+    private fun encryptData(data: String): String {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, getSecretKey())
+
+        val iv = cipher.iv
+        val encryption = cipher.doFinal(data.toByteArray(Charsets.UTF_8))
+
+        // Combine IV and CipherText
+        val combined = ByteArray(iv.size + encryption.size)
+        System.arraycopy(iv, 0, combined, 0, iv.size)
+        System.arraycopy(encryption, 0, combined, iv.size, encryption.size)
+
+        return Base64.encodeToString(combined, Base64.NO_WRAP)
+    }
+
+    private fun decryptData(base64Data: String): String {
+        val combined = Base64.decode(base64Data, Base64.NO_WRAP)
+
+        // GCM IV is standard 12 bytes
+        val iv = ByteArray(12)
+        val encryptedData = ByteArray(combined.size - 12)
+
+        System.arraycopy(combined, 0, iv, 0, 12)
+        System.arraycopy(combined, 12, encryptedData, 0, encryptedData.size)
+
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        val spec = GCMParameterSpec(128, iv) // 128 bit authentication tag length
+        cipher.init(Cipher.DECRYPT_MODE, getSecretKey(), spec)
+
+        val decoded = cipher.doFinal(encryptedData)
+        return String(decoded, Charsets.UTF_8)
+    }
+
+    // --- HELPERS (Rate Limiting & Hashing) ---
+    // (These remain mostly the same, ensuring high security logic)
+
+    private fun isLockedOut(): Boolean {
+        val lockoutTime = sharedPreferences.getLong("LOCKOUT_TIMESTAMP", 0)
+        return System.currentTimeMillis() < lockoutTime
+    }
+
+    private fun incrementFailures() {
+        val failures = sharedPreferences.getInt("FAILED_ATTEMPTS", 0) + 1
+        val editor = sharedPreferences.edit()
+        if (failures >= MAX_ATTEMPTS) {
+            editor.putLong("LOCKOUT_TIMESTAMP", System.currentTimeMillis() + LOCKOUT_DURATION_MS)
+            editor.putInt("FAILED_ATTEMPTS", 0)
+        } else {
+            editor.putInt("FAILED_ATTEMPTS", failures)
+        }
+        editor.apply()
+    }
+
+    private fun resetFailures() {
+        sharedPreferences.edit()
+            .putInt("FAILED_ATTEMPTS", 0)
+            .putLong("LOCKOUT_TIMESTAMP", 0)
+            .apply()
+    }
+
+    fun getRemainingLockoutTime(): Long {
+        val lockoutTime = sharedPreferences.getLong("LOCKOUT_TIMESTAMP", 0)
+        val now = System.currentTimeMillis()
+        return if (now < lockoutTime) (lockoutTime - now) / 1000 else 0
+    }
 
     private fun generateSalt(): String {
         val random = SecureRandom()
-        val saltBytes = ByteArray(16) // 16 bytes is a standard salt size
-        random.nextBytes(saltBytes)
-        return Base64.encodeToString(saltBytes, Base64.NO_WRAP)
+        val salt = ByteArray(SALT_LENGTH)
+        random.nextBytes(salt)
+        return Base64.encodeToString(salt, Base64.NO_WRAP)
     }
 
-    // Standard SHA-256 Hashing
     private fun hashPin(pin: String, salt: String): String {
-        val combinedString = salt + pin // The "Secret Sauce"
-        val bytes = combinedString.toByteArray()
-        val digest = MessageDigest.getInstance("SHA-256")
-        val hashedBytes = digest.digest(bytes)
-        return Base64.encodeToString(hashedBytes, Base64.NO_WRAP)
+        val saltBytes = Base64.decode(salt, Base64.NO_WRAP)
+        val spec = PBEKeySpec(pin.toCharArray(), saltBytes, ITERATIONS, KEY_LENGTH)
+        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+        val hashBytes = factory.generateSecret(spec).encoded
+        return Base64.encodeToString(hashBytes, Base64.NO_WRAP)
     }
 }
