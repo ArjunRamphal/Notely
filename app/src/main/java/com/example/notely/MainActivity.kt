@@ -32,6 +32,9 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -152,9 +155,7 @@ fun AppNavigation(viewModel: AppViewModel) {
                 )
             }
             AppScreen.Settings -> {
-                BackHandler {
-                    currentScreen = AppScreen.NotesList
-                }
+                // BackHandler is handled inside SettingsScreen now to support sub-navigation
                 SettingsScreen(
                     onBackClick = { currentScreen = AppScreen.NotesList },
                     onChangePinClick = {
@@ -364,6 +365,9 @@ fun NoteCard(
     }
 }
 
+// Enum to manage sub-screens within the Settings Screen
+private enum class SettingsPage { Root, Privacy, Data }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -372,6 +376,18 @@ fun SettingsScreen(
     viewModel: AppViewModel
 ) {
     val context = LocalContext.current
+    var currentPage by remember { mutableStateOf(SettingsPage.Root) }
+
+    // Logic: If in a sub-page, back goes to Root. If Root, back goes to parent (Notes List).
+    BackHandler(enabled = true) {
+        if (currentPage != SettingsPage.Root) {
+            currentPage = SettingsPage.Root
+        } else {
+            onBackClick()
+        }
+    }
+
+    // --- DIALOGS & LAUNCHERS ---
     val currentTimeout by viewModel.autoLockTimeout.collectAsState()
     var showTimeoutDialog by remember { mutableStateOf(false) }
     val timeoutOptions = mapOf(
@@ -382,7 +398,6 @@ fun SettingsScreen(
         -1L to "Never"
     )
 
-    // --- EXPORT LAUNCHER ---
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
@@ -392,7 +407,6 @@ fun SettingsScreen(
         }
     }
 
-    // --- IMPORT LAUNCHER ---
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -406,9 +420,21 @@ fun SettingsScreen(
         modifier = Modifier.safeDrawingPadding(),
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = {
+                    Text(when(currentPage) {
+                        SettingsPage.Root -> "Settings"
+                        SettingsPage.Privacy -> "Privacy & Security"
+                        SettingsPage.Data -> "Data Management"
+                    })
+                },
                 navigationIcon = {
-                    IconButton(onClick = onBackClick) {
+                    IconButton(onClick = {
+                        if (currentPage != SettingsPage.Root) {
+                            currentPage = SettingsPage.Root
+                        } else {
+                            onBackClick()
+                        }
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 }
@@ -416,45 +442,81 @@ fun SettingsScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).padding(16.dp)) {
-            // PIN SETTINGS
-            ListItem(
-                headlineContent = { Text("Change PIN") },
-                leadingContent = { Icon(Icons.Default.Lock, null) },
-                modifier = Modifier.clickable { onChangePinClick() }.fillMaxWidth()
-            )
-            HorizontalDivider()
 
-            // AUTO LOCK SETTINGS
-            ListItem(
-                headlineContent = { Text("Auto-lock Timeout") },
-                supportingContent = { Text(timeoutOptions[currentTimeout] ?: "Immediately") },
-                leadingContent = { Icon(Icons.Default.DateRange, null) },
-                modifier = Modifier.clickable { showTimeoutDialog = true }.fillMaxWidth()
-            )
-            HorizontalDivider()
+            when (currentPage) {
+                // --- MAIN ROOT SCREEN ---
+                SettingsPage.Root -> {
+                    // Button 1: Privacy & Security
+                    ListItem(
+                        headlineContent = { Text("Privacy & Security") },
+                        leadingContent = { Icon(Icons.Default.Security, null) },
+                        trailingContent = { Icon(Icons.Default.ChevronRight, null) },
+                        modifier = Modifier
+                            .clickable { currentPage = SettingsPage.Privacy }
+                            .fillMaxWidth()
+                    )
+                    HorizontalDivider()
 
-            // DATA MANAGEMENT
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("Data Management", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            Spacer(modifier = Modifier.height(8.dp))
+                    // Button 2: Data Management
+                    ListItem(
+                        headlineContent = { Text("Data Management") },
+                        leadingContent = { Icon(Icons.Default.Storage, null) },
+                        trailingContent = { Icon(Icons.Default.ChevronRight, null) },
+                        modifier = Modifier
+                            .clickable { currentPage = SettingsPage.Data }
+                            .fillMaxWidth()
+                    )
+                    HorizontalDivider()
+                }
 
-            // EXPORT
-            ListItem(
-                headlineContent = { Text("Export Notes") },
-                supportingContent = { Text("Save backup to JSON") },
-                leadingContent = { Icon(Icons.Default.Upload, null) },
-                modifier = Modifier.clickable { exportLauncher.launch("notely_backup.json") }.fillMaxWidth()
-            )
+                // --- PRIVACY SUB-SCREEN ---
+                SettingsPage.Privacy -> {
+                    ListItem(
+                        headlineContent = { Text("Change PIN") },
+                        leadingContent = { Icon(Icons.Default.Lock, null) },
+                        modifier = Modifier
+                            .clickable { onChangePinClick() }
+                            .fillMaxWidth()
+                    )
+                    HorizontalDivider()
 
-            // IMPORT
-            ListItem(
-                headlineContent = { Text("Import Notes") },
-                supportingContent = { Text("Restore from JSON") },
-                leadingContent = { Icon(Icons.Default.Download, null) },
-                modifier = Modifier.clickable { importLauncher.launch(arrayOf("application/json")) }.fillMaxWidth()
-            )
+                    ListItem(
+                        headlineContent = { Text("Auto-lock Timeout") },
+                        supportingContent = { Text(timeoutOptions[currentTimeout] ?: "Immediately") },
+                        leadingContent = { Icon(Icons.Default.DateRange, null) },
+                        modifier = Modifier
+                            .clickable { showTimeoutDialog = true }
+                            .fillMaxWidth()
+                    )
+                    HorizontalDivider()
+                }
+
+                // --- DATA SUB-SCREEN ---
+                SettingsPage.Data -> {
+                    ListItem(
+                        headlineContent = { Text("Export Notes") },
+                        supportingContent = { Text("Save backup to JSON") },
+                        leadingContent = { Icon(Icons.Default.Upload, null) },
+                        modifier = Modifier
+                            .clickable { exportLauncher.launch("notely_backup.json") }
+                            .fillMaxWidth()
+                    )
+                    HorizontalDivider()
+
+                    ListItem(
+                        headlineContent = { Text("Import Notes") },
+                        supportingContent = { Text("Restore from JSON") },
+                        leadingContent = { Icon(Icons.Default.Download, null) },
+                        modifier = Modifier
+                            .clickable { importLauncher.launch(arrayOf("application/json")) }
+                            .fillMaxWidth()
+                    )
+                    HorizontalDivider()
+                }
+            }
         }
 
+        // Dialog for Timeout (Shared Logic)
         if (showTimeoutDialog) {
             AlertDialog(
                 onDismissRequest = { showTimeoutDialog = false },
@@ -463,7 +525,13 @@ fun SettingsScreen(
                     Column {
                         timeoutOptions.forEach { (value, label) ->
                             Row(
-                                modifier = Modifier.fillMaxWidth().clickable { viewModel.setAutoLockTimeout(value); showTimeoutDialog = false }.padding(vertical = 12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.setAutoLockTimeout(value)
+                                        showTimeoutDialog = false
+                                    }
+                                    .padding(vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 RadioButton(selected = (currentTimeout == value), onClick = null)
