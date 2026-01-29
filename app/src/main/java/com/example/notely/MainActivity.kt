@@ -1,6 +1,8 @@
 package com.example.notely
 
 import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
@@ -35,6 +37,8 @@ import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -52,11 +56,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.fragment.app.FragmentActivity
 
 enum class AppScreen { NotesList, Editor, Settings, ChangePin }
 enum class ChangePinStage { VerifyOld, SetNew }
 
-class MainActivity : ComponentActivity() {
+// Ensure this extends FragmentActivity for BiometricPrompt compatibility
+class MainActivity : FragmentActivity() {
     private val viewModel: AppViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -101,7 +107,6 @@ fun AppNavigation(viewModel: AppViewModel) {
     val isAuthenticated by viewModel.isAuthenticated.collectAsState()
     val isPinSet by viewModel.isPinSet.collectAsState()
 
-    // Navigation State
     var currentScreen by remember { mutableStateOf(AppScreen.NotesList) }
     var currentNote by remember { mutableStateOf<Note?>(null) }
     var changePinStage by remember { mutableStateOf(ChangePinStage.VerifyOld) }
@@ -155,7 +160,6 @@ fun AppNavigation(viewModel: AppViewModel) {
                 )
             }
             AppScreen.Settings -> {
-                // BackHandler is handled inside SettingsScreen now to support sub-navigation
                 SettingsScreen(
                     onBackClick = { currentScreen = AppScreen.NotesList },
                     onChangePinClick = {
@@ -365,7 +369,6 @@ fun NoteCard(
     }
 }
 
-// Enum to manage sub-screens within the Settings Screen
 private enum class SettingsPage { Root, Privacy, Data }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -377,6 +380,17 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     var currentPage by remember { mutableStateOf(SettingsPage.Root) }
+
+    // --- ENCRYPTION STATES ---
+    var showExportPasswordDialog by remember { mutableStateOf(false) }
+    var showImportPasswordDialog by remember { mutableStateOf(false) }
+    var tempPassword by remember { mutableStateOf("") }
+    var selectedImportUri by remember { mutableStateOf<android.net.Uri?>(null) }
+
+    // --- SETTINGS STATES ---
+    val isClipboardClearEnabled by viewModel.isClipboardClearEnabled.collectAsState()
+    val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
+    val canUseBiometrics = remember { viewModel.canUseBiometrics(context) }
 
     // Logic: If in a sub-page, back goes to Root. If Root, back goes to parent (Notes List).
     BackHandler(enabled = true) {
@@ -398,21 +412,32 @@ fun SettingsScreen(
         -1L to "Never"
     )
 
+    // Export Launcher (Generic file creation)
     val exportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/json")
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri ->
         uri?.let {
-            viewModel.exportNotes(it)
-            Toast.makeText(context, "Exporting notes...", Toast.LENGTH_SHORT).show()
+            viewModel.exportEncryptedNotes(it, tempPassword)
+            tempPassword = ""
+            Toast.makeText(context, "Encrypted Export Started...", Toast.LENGTH_SHORT).show()
         }
     }
 
+    // Import Launcher
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
-            viewModel.importNotes(it)
-            Toast.makeText(context, "Importing notes...", Toast.LENGTH_SHORT).show()
+            selectedImportUri = it
+            showImportPasswordDialog = true
+        }
+    }
+
+    // Observe Error Messages
+    val errorMessage by viewModel.errorMessage.collectAsState()
+    LaunchedEffect(errorMessage) {
+        errorMessage?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
         }
     }
 
@@ -446,7 +471,6 @@ fun SettingsScreen(
             when (currentPage) {
                 // --- MAIN ROOT SCREEN ---
                 SettingsPage.Root -> {
-                    // Button 1: Privacy & Security
                     ListItem(
                         headlineContent = { Text("Privacy & Security") },
                         leadingContent = { Icon(Icons.Default.Security, null) },
@@ -457,7 +481,6 @@ fun SettingsScreen(
                     )
                     HorizontalDivider()
 
-                    // Button 2: Data Management
                     ListItem(
                         headlineContent = { Text("Data Management") },
                         leadingContent = { Icon(Icons.Default.Storage, null) },
@@ -471,6 +494,7 @@ fun SettingsScreen(
 
                 // --- PRIVACY SUB-SCREEN ---
                 SettingsPage.Privacy -> {
+                    // 1. PIN
                     ListItem(
                         headlineContent = { Text("Change PIN") },
                         leadingContent = { Icon(Icons.Default.Lock, null) },
@@ -480,6 +504,24 @@ fun SettingsScreen(
                     )
                     HorizontalDivider()
 
+                    // 2. BIOMETRIC (Only show if hardware supported)
+                    if (canUseBiometrics) {
+                        ListItem(
+                            headlineContent = { Text("Biometric Unlock") },
+                            supportingContent = { Text("Use Fingerprint or Face ID") },
+                            leadingContent = { Icon(Icons.Default.Fingerprint, null) },
+                            trailingContent = {
+                                Switch(
+                                    checked = isBiometricEnabled,
+                                    onCheckedChange = { viewModel.toggleBiometricAuth(it) }
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        HorizontalDivider()
+                    }
+
+                    // 3. AUTO LOCK
                     ListItem(
                         headlineContent = { Text("Auto-lock Timeout") },
                         supportingContent = { Text(timeoutOptions[currentTimeout] ?: "Immediately") },
@@ -489,26 +531,44 @@ fun SettingsScreen(
                             .fillMaxWidth()
                     )
                     HorizontalDivider()
+
+                    // 4. CLIPBOARD
+                    ListItem(
+                        headlineContent = { Text("Clear Clipboard on Exit") },
+                        supportingContent = { Text("Prevents leaks to other apps") },
+                        leadingContent = { Icon(Icons.Default.ContentPaste, null) }, // Added Clipboard Icon
+                        trailingContent = {
+                            Switch(
+                                checked = isClipboardClearEnabled,
+                                onCheckedChange = { viewModel.toggleClipboardClear() }
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    HorizontalDivider()
                 }
 
                 // --- DATA SUB-SCREEN ---
                 SettingsPage.Data -> {
                     ListItem(
-                        headlineContent = { Text("Export Notes") },
-                        supportingContent = { Text("Save backup to JSON") },
+                        headlineContent = { Text("Export Encrypted Backup") },
+                        supportingContent = { Text("Save password-protected file") },
                         leadingContent = { Icon(Icons.Default.Upload, null) },
                         modifier = Modifier
-                            .clickable { exportLauncher.launch("notely_backup.json") }
+                            .clickable {
+                                tempPassword = ""
+                                showExportPasswordDialog = true
+                            }
                             .fillMaxWidth()
                     )
                     HorizontalDivider()
 
                     ListItem(
-                        headlineContent = { Text("Import Notes") },
-                        supportingContent = { Text("Restore from JSON") },
+                        headlineContent = { Text("Import Backup") },
+                        supportingContent = { Text("Restore from file") },
                         leadingContent = { Icon(Icons.Default.Download, null) },
                         modifier = Modifier
-                            .clickable { importLauncher.launch(arrayOf("application/json")) }
+                            .clickable { importLauncher.launch(arrayOf("*/*")) }
                             .fillMaxWidth()
                     )
                     HorizontalDivider()
@@ -516,7 +576,68 @@ fun SettingsScreen(
             }
         }
 
-        // Dialog for Timeout (Shared Logic)
+        if (showExportPasswordDialog) {
+            AlertDialog(
+                onDismissRequest = { showExportPasswordDialog = false },
+                title = { Text("Set Backup Password") },
+                text = {
+                    Column {
+                        Text("Enter a password to encrypt this backup file. You will need this password to restore it.")
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = tempPassword,
+                            onValueChange = { tempPassword = it },
+                            label = { Text("Password") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        if (tempPassword.isNotEmpty()) {
+                            showExportPasswordDialog = false
+                            exportLauncher.launch("notely_backup.enc")
+                        }
+                    }) { Text("Save") }
+                },
+                dismissButton = { TextButton(onClick = { showExportPasswordDialog = false }) { Text("Cancel") } }
+            )
+        }
+
+        if (showImportPasswordDialog) {
+            AlertDialog(
+                onDismissRequest = { showImportPasswordDialog = false },
+                title = { Text("Unlock Backup") },
+                text = {
+                    Column {
+                        Text("Enter the password used to encrypt this file.")
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = tempPassword,
+                            onValueChange = { tempPassword = it },
+                            label = { Text("Password") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        if (tempPassword.isNotEmpty() && selectedImportUri != null) {
+                            viewModel.importEncryptedNotes(selectedImportUri!!, tempPassword)
+                            tempPassword = ""
+                            showImportPasswordDialog = false
+                            Toast.makeText(context, "Restoring...", Toast.LENGTH_SHORT).show()
+                        }
+                    }) { Text("Restore") }
+                },
+                dismissButton = { TextButton(onClick = { showImportPasswordDialog = false }) { Text("Cancel") } }
+            )
+        }
+
         if (showTimeoutDialog) {
             AlertDialog(
                 onDismissRequest = { showTimeoutDialog = false },
@@ -600,9 +721,23 @@ fun PinScreen(title: String, viewModel: AppViewModel, isSetup: Boolean) {
     var pin by remember { mutableStateOf("") }
     val error by viewModel.errorMessage.collectAsState()
     val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    val context = LocalContext.current // Use context to find activity safely
+    val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
+
+    // SAFELY FIND FRAGMENT ACTIVITY
+    val activity = remember(context) { context.findFragmentActivity() }
+
+    // Launch Biometric Prompt ONLY if not setup mode, enabled in settings, and activity valid
+    LaunchedEffect(Unit) {
+        if (!isSetup && isBiometricEnabled && activity != null) {
+            viewModel.showBiometricPrompt(activity)
+        }
+        focusRequester.requestFocus()
+    }
+
     Column(modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         if (title.isNotEmpty()) { Text(text = title, style = MaterialTheme.typography.headlineMedium); Spacer(modifier = Modifier.height(32.dp)) }
+
         OutlinedTextField(
             value = pin,
             onValueChange = { newPin ->
@@ -626,5 +761,26 @@ fun PinScreen(title: String, viewModel: AppViewModel, isSetup: Boolean) {
             modifier = Modifier.width(200.dp).focusRequester(focusRequester)
         )
         if (error != null) { Spacer(modifier = Modifier.height(16.dp)); Text(text = error ?: "", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+
+        // Manual Trigger for Biometric
+        if (!isSetup && isBiometricEnabled && activity != null) {
+            Spacer(modifier = Modifier.height(32.dp))
+            IconButton(
+                onClick = { viewModel.showBiometricPrompt(activity) },
+                modifier = Modifier.size(64.dp)
+            ) {
+                Icon(Icons.Default.Fingerprint, "Unlock with Biometrics", modifier = Modifier.fillMaxSize())
+            }
+        }
     }
+}
+
+// --- HELPER FUNCTION: Safely unwraps Context to find FragmentActivity ---
+fun Context.findFragmentActivity(): FragmentActivity? {
+    var context = this
+    while (context is ContextWrapper) {
+        if (context is FragmentActivity) return context
+        context = context.baseContext
+    }
+    return null
 }

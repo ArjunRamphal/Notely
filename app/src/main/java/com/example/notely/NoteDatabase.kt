@@ -89,13 +89,15 @@ abstract class NoteDatabase : RoomDatabase() {
                     .openHelperFactory(factory) // 3. Enable Encryption
                     .build()
 
+                // --- MEMORY HYGIENE ---
+                passphrase.fill(0)
+
                 INSTANCE = instance
                 instance
             }
         }
 
-        // --- NATIVE KEYSTORE LOGIC (No Deprecated Libraries) ---
-
+        // --- NATIVE KEYSTORE LOGIC ---
         private fun getOrGenerateKey(context: Context): ByteArray {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val encryptedBlob = prefs.getString(ENCRYPTED_KEY_NAME, null)
@@ -110,7 +112,6 @@ abstract class NoteDatabase : RoomDatabase() {
                 } catch (e: Exception) {
                     e.printStackTrace()
                     // If decryption fails (e.g. key invalidated), we must recreate.
-                    // WARNING: This will make the old DB unreadable.
                     generateAndSaveNewKey(prefs)
                 }
             } else {
@@ -134,7 +135,6 @@ abstract class NoteDatabase : RoomDatabase() {
         }
 
         // --- LOW LEVEL CRYPTO ---
-
         private fun createKeystoreKey() {
             val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
             keyStore.load(null)

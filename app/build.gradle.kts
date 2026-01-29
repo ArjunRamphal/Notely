@@ -57,6 +57,8 @@ dependencies {
     // 2. Room Database (Local Storage)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    implementation(libs.androidx.biometric.ktx)
+    implementation(libs.androidx.fragment.ktx)
     ksp(libs.androidx.room.compiler) // Uses KSP plugin
 
     // 3. Security (Encrypted PIN)
@@ -67,6 +69,8 @@ dependencies {
     implementation(libs.androidx.sqlite)
 
     implementation("com.google.code.gson:gson:2.13.2")
+
+    implementation(libs.androidx.biometric)
 
     // --- TESTING ---
     testImplementation(libs.junit)

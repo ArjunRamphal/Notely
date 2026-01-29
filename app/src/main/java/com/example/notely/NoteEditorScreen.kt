@@ -1,6 +1,7 @@
 package com.example.notely
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -15,6 +16,9 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
@@ -50,6 +54,16 @@ fun NoteEditorScreen(
     var textFieldValue by remember {
         mutableStateOf(TextFieldValue(richTextState.text))
     }
+
+    // --- SECURITY: INCOGNITO KEYBOARD CONFIG ---
+    // This configuration tells the keyboard NOT to learn words,
+    // NOT to use predictive text, and NOT to cache input.
+    val secureKeyboardOptions = KeyboardOptions(
+        capitalization = KeyboardCapitalization.Sentences,
+        autoCorrect = false, // CRITICAL: Disables learning and predictive cache
+        keyboardType = KeyboardType.Text,
+        imeAction = ImeAction.Default
+    )
 
     Scaffold(
         topBar = {
@@ -160,6 +174,8 @@ fun NoteEditorScreen(
                     fontFamily = getFontFamily(currentFontName)
                 ),
                 modifier = Modifier.fillMaxWidth(),
+                // Apply Incognito Mode
+                keyboardOptions = secureKeyboardOptions.copy(imeAction = ImeAction.Next),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
@@ -175,6 +191,8 @@ fun NoteEditorScreen(
                 placeholder = { Text("Tags (comma separated)", style = MaterialTheme.typography.bodyMedium) },
                 textStyle = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.fillMaxWidth(),
+                // Apply Incognito Mode
+                keyboardOptions = secureKeyboardOptions.copy(imeAction = ImeAction.Next),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
@@ -204,6 +222,9 @@ fun NoteEditorScreen(
                         )
                     }
                 },
+
+                // Apply Incognito Mode
+                keyboardOptions = secureKeyboardOptions,
 
                 textStyle = TextStyle(
                     fontFamily = getFontFamily(currentFontName),
