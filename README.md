@@ -1,6 +1,7 @@
 # Notely
 
-
+![Kotlin](https://img.shields.io/badge/kotlin-%237F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white)
+![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)
 
 **Notely** is a modern, privacy-focused Android note-taking application built entirely with **Kotlin** and **Jetpack Compose**. It is designed to keep your thoughts secure with built-in PIN protection, auto-lock features, and screenshot prevention, all wrapped in a sleek Material 3 interface.
 
