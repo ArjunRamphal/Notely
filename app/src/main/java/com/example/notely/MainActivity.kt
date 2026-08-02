@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Timer // Added for the new setting
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -406,6 +407,7 @@ fun SettingsScreen(
     val isClipboardClearEnabled by viewModel.isClipboardClearEnabled.collectAsState()
     val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
     val isAutoSaveEnabled by viewModel.isAutoSaveEnabled.collectAsState()
+    val isPinLockoutEnabled by viewModel.isPinLockoutEnabled.collectAsState() // NEW
     val canUseBiometrics = remember { viewModel.canUseBiometrics(context) }
 
     BackHandler(enabled = true) {
@@ -509,6 +511,21 @@ fun SettingsScreen(
                         modifier = Modifier
                             .clickable { onChangePinClick() }
                             .fillMaxWidth()
+                    )
+                    HorizontalDivider()
+
+                    // NEW: Lockout Timer Toggle
+                    ListItem(
+                        headlineContent = { Text("PIN Lockout Timer") },
+                        supportingContent = { Text("Progressive lockout after 5 failed attempts") },
+                        leadingContent = { Icon(Icons.Default.Timer, null) },
+                        trailingContent = {
+                            Switch(
+                                checked = isPinLockoutEnabled,
+                                onCheckedChange = { viewModel.togglePinLockout() }
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth()
                     )
                     HorizontalDivider()
 
@@ -738,17 +755,21 @@ fun ChangePinScreen(
 fun PinScreen(title: String, viewModel: AppViewModel, isSetup: Boolean) {
     var pin by remember { mutableStateOf("") }
     val error by viewModel.errorMessage.collectAsState()
+    val lockoutTime by viewModel.lockoutTimeRemaining.collectAsState()
     val focusRequester = remember { FocusRequester() }
     val context = LocalContext.current
     val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
 
     val activity = remember(context) { context.findFragmentActivity() }
+    val isLockedOut = lockoutTime > 0
 
-    LaunchedEffect(Unit) {
-        if (!isSetup && isBiometricEnabled && activity != null) {
+    LaunchedEffect(isLockedOut) {
+        if (!isSetup && isBiometricEnabled && activity != null && !isLockedOut) {
             viewModel.showBiometricPrompt(activity)
         }
-        focusRequester.requestFocus()
+        if (!isLockedOut) {
+            focusRequester.requestFocus()
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -757,7 +778,7 @@ fun PinScreen(title: String, viewModel: AppViewModel, isSetup: Boolean) {
         OutlinedTextField(
             value = pin,
             onValueChange = { newPin ->
-                if (newPin.all { it.isDigit() } && newPin.length <= 4) {
+                if (!isLockedOut && newPin.all { it.isDigit() } && newPin.length <= 4) {
                     pin = newPin
                     if (pin.length == 4) {
                         if (isSetup) viewModel.setPin(pin)
@@ -772,12 +793,39 @@ fun PinScreen(title: String, viewModel: AppViewModel, isSetup: Boolean) {
             textStyle = MaterialTheme.typography.headlineMedium,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-            isError = error != null,
+            isError = error != null || isLockedOut,
             singleLine = true,
-            modifier = Modifier.width(200.dp).focusRequester(focusRequester)
+            enabled = !isLockedOut, // Prevents typing while locked out
+            modifier = Modifier.width(200.dp).let {
+                if (!isLockedOut) it.focusRequester(focusRequester) else it
+            }
         )
-        if (error != null) { Spacer(modifier = Modifier.height(16.dp)); Text(text = error ?: "", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
 
+        if (isLockedOut) {
+            Spacer(modifier = Modifier.height(16.dp))
+            val hours = lockoutTime / 3600
+            val minutes = (lockoutTime % 3600) / 60
+            val seconds = lockoutTime % 60
+
+            // Format time accurately since it doubles and can stretch into hours
+            val formattedTime = if (hours > 0) {
+                String.format("%02d:%02d:%02d", hours, minutes, seconds)
+            } else {
+                String.format("%02d:%02d", minutes, seconds)
+            }
+
+            Text(
+                text = "Locked out. Try again in $formattedTime",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold
+            )
+        } else if (error != null) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(text = error ?: "", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+        }
+
+        // Keep Biometric Button accessible (Can bypass the PIN timer penalty)
         if (!isSetup && isBiometricEnabled && activity != null) {
             Spacer(modifier = Modifier.height(32.dp))
             IconButton(

@@ -12,12 +12,11 @@ import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
@@ -111,6 +110,48 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage = _errorMessage.asStateFlow()
 
+    private val _lockoutTimeRemaining = MutableStateFlow(0L)
+    val lockoutTimeRemaining = _lockoutTimeRemaining.asStateFlow()
+
+    // NEW: Expose settings toggle for lockout timer
+    private val _isPinLockoutEnabled = MutableStateFlow(pinManager.isLockoutEnabled())
+    val isPinLockoutEnabled = _isPinLockoutEnabled.asStateFlow()
+
+    init {
+        val remaining = pinManager.getRemainingLockoutTime()
+        if (remaining > 0) {
+            startLockoutTimer()
+        }
+    }
+
+    fun togglePinLockout() {
+        val newState = !_isPinLockoutEnabled.value
+        pinManager.setLockoutEnabled(newState)
+        _isPinLockoutEnabled.value = newState
+
+        // If the user turned it off, clear any active timer from the UI state instantly
+        if (!newState) {
+            _lockoutTimeRemaining.value = 0L
+            if (_errorMessage.value?.contains("attempts left") == true || _errorMessage.value?.contains("Too many attempts") == true) {
+                _errorMessage.value = null
+            }
+        }
+    }
+
+    private fun startLockoutTimer() {
+        viewModelScope.launch {
+            while (true) {
+                val remaining = pinManager.getRemainingLockoutTime()
+                _lockoutTimeRemaining.value = remaining
+                if (remaining <= 0) {
+                    _errorMessage.value = null
+                    break
+                }
+                delay(1000)
+            }
+        }
+    }
+
     fun setPin(newPin: String) {
         if (newPin.length >= 4) {
             pinManager.savePin(newPin)
@@ -125,21 +166,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun checkPin(inputPin: String) {
         val remainingTime = pinManager.getRemainingLockoutTime()
         if (remainingTime > 0) {
-            _errorMessage.value = "Too many attempts. Try again in ${remainingTime}s"
-            _isAuthenticated.value = false
+            startLockoutTimer()
             return
         }
 
         if (pinManager.checkPin(inputPin)) {
             _isAuthenticated.value = true
             _errorMessage.value = null
+            _lockoutTimeRemaining.value = 0L
         } else {
             _isAuthenticated.value = false
             val newRemainingTime = pinManager.getRemainingLockoutTime()
             if (newRemainingTime > 0) {
-                _errorMessage.value = "Too many attempts. Try again in ${newRemainingTime}s"
+                startLockoutTimer()
             } else {
-                _errorMessage.value = "Incorrect PIN"
+                if (pinManager.isLockoutEnabled()) {
+                    val attemptsLeft = 5 - pinManager.getFailedAttempts()
+                    _errorMessage.value = "Incorrect PIN. $attemptsLeft attempts left."
+                } else {
+                    _errorMessage.value = "Incorrect PIN." // Hide attempts counter if lockout is disabled
+                }
             }
         }
     }
@@ -148,7 +194,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return pinManager.checkPin(inputPin)
     }
 
-    // --- BIOMETRIC SECURITY (Updated for SDK 36) ---
+    // --- BIOMETRIC SECURITY ---
     private val _isBiometricEnabled = MutableStateFlow(prefs.getBoolean("biometric_enabled", false))
     val isBiometricEnabled = _isBiometricEnabled.asStateFlow()
 
@@ -172,6 +218,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     super.onAuthenticationSucceeded(result)
                     _isAuthenticated.value = true
                     _errorMessage.value = null
+                    _lockoutTimeRemaining.value = 0L
+                    pinManager.resetFailures() // Using Biometrics completely wipes the PIN penalty
                 }
 
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
@@ -199,7 +247,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     val allNotes = noteDao.getAllNotes()
 
-    // NEW: Auto-save logic
     suspend fun saveNoteSynchronous(
         existingId: Int?,
         title: String,
@@ -215,13 +262,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             fontName = fontName,
             tags = tags,
             styleMetadata = styleMetadata,
-            timestamp = System.currentTimeMillis() // Update timestamp on auto-save
+            timestamp = System.currentTimeMillis()
         )
         return if (existingId == null || existingId == 0) {
-            noteDao.insert(note).toInt() // Insert and return the new ID
+            noteDao.insert(note).toInt()
         } else {
             noteDao.update(note)
-            existingId // Return the existing ID
+            existingId
         }
     }
 

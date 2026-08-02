@@ -5,7 +5,6 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.security.KeyStore
-import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -28,7 +27,8 @@ class PinManager(context: Context) {
     private val SALT_LENGTH = 16
 
     private val MAX_ATTEMPTS = 5
-    private val LOCKOUT_DURATION_MS = 30_000L
+    // Base lockout is 30 minutes (30 * 60 * 1000)
+    private val BASE_LOCKOUT_DURATION_MS = 1_800_000L
 
     init {
         createKeyStoreKey()
@@ -54,6 +54,7 @@ class PinManager(context: Context) {
             .putString("ENCRYPTED_PIN_DATA", encryptedData)
             .putInt("FAILED_ATTEMPTS", 0)
             .putLong("LOCKOUT_TIMESTAMP", 0)
+            .putInt("LOCKOUT_MULTIPLIER", 1) // Reset multiplier
             .apply()
     }
 
@@ -95,6 +96,19 @@ class PinManager(context: Context) {
 
     fun isPinSet(): Boolean {
         return sharedPreferences.contains("ENCRYPTED_PIN_DATA")
+    }
+
+    // --- SETTINGS LOGIC ---
+    fun isLockoutEnabled(): Boolean {
+        return sharedPreferences.getBoolean("LOCKOUT_ENABLED", true)
+    }
+
+    fun setLockoutEnabled(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean("LOCKOUT_ENABLED", enabled).apply()
+        // If the user turns off the lockout timer, completely clear any active penalties
+        if (!enabled) {
+            resetFailures()
+        }
     }
 
     // --- ENCRYPTION LOGIC (Hardware Backed) ---
@@ -158,36 +172,51 @@ class PinManager(context: Context) {
     }
 
     // --- HELPERS (Rate Limiting & Hashing) ---
-    // (These remain mostly the same, ensuring high security logic)
 
     private fun isLockedOut(): Boolean {
+        if (!isLockoutEnabled()) return false
         val lockoutTime = sharedPreferences.getLong("LOCKOUT_TIMESTAMP", 0)
         return System.currentTimeMillis() < lockoutTime
     }
 
     private fun incrementFailures() {
+        if (!isLockoutEnabled()) return
+
         val failures = sharedPreferences.getInt("FAILED_ATTEMPTS", 0) + 1
         val editor = sharedPreferences.edit()
+
         if (failures >= MAX_ATTEMPTS) {
-            editor.putLong("LOCKOUT_TIMESTAMP", System.currentTimeMillis() + LOCKOUT_DURATION_MS)
-            editor.putInt("FAILED_ATTEMPTS", 0)
+            val multiplier = sharedPreferences.getInt("LOCKOUT_MULTIPLIER", 1)
+            val duration = BASE_LOCKOUT_DURATION_MS * multiplier
+
+            editor.putLong("LOCKOUT_TIMESTAMP", System.currentTimeMillis() + duration)
+            editor.putInt("LOCKOUT_MULTIPLIER", multiplier * 2) // Double it for the next lockout
+            editor.putInt("FAILED_ATTEMPTS", 0) // Reset so they get 5 fresh attempts AFTER the lockout expires
         } else {
             editor.putInt("FAILED_ATTEMPTS", failures)
         }
         editor.apply()
     }
 
-    private fun resetFailures() {
+    fun resetFailures() {
         sharedPreferences.edit()
             .putInt("FAILED_ATTEMPTS", 0)
             .putLong("LOCKOUT_TIMESTAMP", 0)
+            .putInt("LOCKOUT_MULTIPLIER", 1) // Completely resets the punishment bracket
             .apply()
     }
 
+    fun getFailedAttempts(): Int {
+        if (!isLockoutEnabled()) return 0
+        return sharedPreferences.getInt("FAILED_ATTEMPTS", 0)
+    }
+
     fun getRemainingLockoutTime(): Long {
+        if (!isLockoutEnabled()) return 0
+
         val lockoutTime = sharedPreferences.getLong("LOCKOUT_TIMESTAMP", 0)
         val now = System.currentTimeMillis()
-        return if (now < lockoutTime) (lockoutTime - now) / 1000 else 0
+        return if (now < lockoutTime) (lockoutTime - now) / 1000 else 0 // returns seconds remaining
     }
 
     private fun generateSalt(): String {
