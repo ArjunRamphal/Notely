@@ -43,8 +43,9 @@ interface NoteDao {
     @Query("SELECT * FROM notes ORDER BY isFavorite DESC, timestamp DESC")
     fun getAllNotes(): Flow<List<Note>>
 
+    // CRITICAL: Return Long so we know the generated ID for auto-saving
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(note: Note)
+    suspend fun insert(note: Note): Long
 
     @Update
     suspend fun update(note: Note)

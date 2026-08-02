@@ -1,5 +1,6 @@
 package com.example.notely
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -22,27 +23,31 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NoteEditorScreen(
     noteToEdit: Note?,
+    isAutoSaveEnabled: Boolean,
+    onAutoSave: (String, String, String, String, String) -> Unit,
     onSave: (String, String, String, String, String) -> Unit,
-    onCancel: () -> Unit
+    onNavigateBack: (String, String, String, String, String) -> Unit,
+    onDiscard: () -> Unit
 ) {
-    // 1. STATE VARIABLES
     var title by remember { mutableStateOf(noteToEdit?.title ?: "") }
     var tags by remember { mutableStateOf(noteToEdit?.tags ?: "") }
     var currentFontName by remember { mutableStateOf(noteToEdit?.fontName ?: "Default") }
     var showFontMenu by remember { mutableStateOf(false) }
+    var showDiscardDialog by remember { mutableStateOf(false) }
 
     val availableFonts = listOf("Default", "Modern", "Elegant", "Handwriting", "Code")
-
-    // --- DYNAMIC CAPABILITY CHECK ---
     val canBold = remember(currentFontName) { supportsBold(currentFontName) }
     val canItalic = remember(currentFontName) { supportsItalic(currentFontName) }
 
-    // 2. RICH TEXT STATE INITIALIZATION
     val richTextState = remember {
         RichTextState(
             initialText = noteToEdit?.content ?: "",
@@ -50,32 +55,67 @@ fun NoteEditorScreen(
         )
     }
 
-    // This local state tracks the TextField's content and cursor
-    var textFieldValue by remember {
-        mutableStateOf(TextFieldValue(richTextState.text))
-    }
+    var textFieldValue by remember { mutableStateOf(TextFieldValue(richTextState.text)) }
 
-    // --- SECURITY: INCOGNITO KEYBOARD CONFIG ---
-    // This configuration tells the keyboard NOT to learn words,
-    // NOT to use predictive text, and NOT to cache input.
     val secureKeyboardOptions = KeyboardOptions(
         capitalization = KeyboardCapitalization.Sentences,
-        autoCorrect = false, // CRITICAL: Disables learning and predictive cache
+        autoCorrect = false,
         keyboardType = KeyboardType.Text,
         imeAction = ImeAction.Default
     )
+
+    // --- AUTO-SAVE LOGIC ---
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                if (isAutoSaveEnabled && (title.isNotBlank() || tags.isNotBlank() || textFieldValue.text.isNotBlank())) {
+                    onAutoSave(title, richTextState.text, currentFontName, tags, StyleSerializer.serialize(richTextState.spans))
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(title, textFieldValue.text, tags, currentFontName, richTextState.spans) {
+        delay(3000)
+        if (isAutoSaveEnabled && (title.isNotBlank() || tags.isNotBlank() || textFieldValue.text.isNotBlank())) {
+            onAutoSave(title, richTextState.text, currentFontName, tags, StyleSerializer.serialize(richTextState.spans))
+        }
+    }
+
+    // --- BACK NAVIGATION LOGIC ---
+    val handleBackPress = {
+        val hasContent = title.isNotBlank() || tags.isNotBlank() || textFieldValue.text.isNotBlank()
+
+        if (!hasContent) {
+            // Note is completely empty, silently exit without prompting or saving
+            onDiscard()
+        } else if (isAutoSaveEnabled) {
+            // Note has content and auto-save is enabled, proceed with auto-routing
+            onNavigateBack(title, richTextState.text, currentFontName, tags, StyleSerializer.serialize(richTextState.spans))
+        } else {
+            // Note has content but auto-save is disabled, prompt user
+            showDiscardDialog = true
+        }
+    }
+
+    BackHandler {
+        handleBackPress()
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(if (noteToEdit == null) "New Note" else "Edit Note") },
                 navigationIcon = {
-                    IconButton(onClick = onCancel) {
+                    IconButton(onClick = { handleBackPress() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
                 actions = {
-                    // --- BOLD BUTTON ---
                     if (canBold) {
                         IconButton(onClick = {
                             richTextState.toggleSelection(
@@ -86,16 +126,10 @@ fun NoteEditorScreen(
                             )
                         }) {
                             val tint = if (richTextState.isTypingBold) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                            Text(
-                                "B",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = MaterialTheme.typography.titleLarge.fontSize,
-                                color = tint
-                            )
+                            Text("B", fontWeight = FontWeight.Bold, fontSize = MaterialTheme.typography.titleLarge.fontSize, color = tint)
                         }
                     }
 
-                    // --- ITALIC BUTTON ---
                     if (canItalic) {
                         IconButton(onClick = {
                             richTextState.toggleSelection(
@@ -106,30 +140,16 @@ fun NoteEditorScreen(
                             )
                         }) {
                             val tint = if (richTextState.isTypingItalic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                            Text(
-                                "I",
-                                fontStyle = FontStyle.Italic,
-                                fontSize = MaterialTheme.typography.titleLarge.fontSize,
-                                fontFamily = FontFamily.Serif,
-                                color = tint
-                            )
+                            Text("I", fontStyle = FontStyle.Italic, fontSize = MaterialTheme.typography.titleLarge.fontSize, fontFamily = FontFamily.Serif, color = tint)
                         }
                     }
 
-                    // --- FONT MENU ---
                     Box {
-                        IconButton(onClick = { showFontMenu = true }) {
-                            Icon(Icons.Default.MoreVert, "Fonts")
-                        }
-                        DropdownMenu(
-                            expanded = showFontMenu,
-                            onDismissRequest = { showFontMenu = false }
-                        ) {
+                        IconButton(onClick = { showFontMenu = true }) { Icon(Icons.Default.MoreVert, "Fonts") }
+                        DropdownMenu(expanded = showFontMenu, onDismissRequest = { showFontMenu = false }) {
                             availableFonts.forEach { font ->
                                 DropdownMenuItem(
-                                    text = {
-                                        Text(text = font, fontFamily = getFontFamily(font))
-                                    },
+                                    text = { Text(text = font, fontFamily = getFontFamily(font)) },
                                     onClick = {
                                         currentFontName = font
                                         showFontMenu = false
@@ -141,15 +161,8 @@ fun NoteEditorScreen(
                         }
                     }
 
-                    // --- SAVE BUTTON ---
                     IconButton(onClick = {
-                        onSave(
-                            title,
-                            richTextState.text,
-                            currentFontName,
-                            tags,
-                            StyleSerializer.serialize(richTextState.spans)
-                        )
+                        onSave(title, richTextState.text, currentFontName, tags, StyleSerializer.serialize(richTextState.spans))
                     }) {
                         Icon(Icons.Default.Check, "Save")
                     }
@@ -160,51 +173,34 @@ fun NoteEditorScreen(
         Column(
             modifier = Modifier
                 .padding(padding)
+                .consumeWindowInsets(padding)
+                .imePadding()
                 .padding(16.dp)
                 .fillMaxSize()
         ) {
-            // TITLE
             TextField(
                 value = title,
                 onValueChange = { title = it },
-                placeholder = {
-                    Text("Title", style = MaterialTheme.typography.headlineSmall)
-                },
-                textStyle = MaterialTheme.typography.headlineSmall.copy(
-                    fontFamily = getFontFamily(currentFontName)
-                ),
+                placeholder = { Text("Title", style = MaterialTheme.typography.headlineSmall) },
+                textStyle = MaterialTheme.typography.headlineSmall.copy(fontFamily = getFontFamily(currentFontName)),
                 modifier = Modifier.fillMaxWidth(),
-                // Apply Incognito Mode
                 keyboardOptions = secureKeyboardOptions.copy(imeAction = ImeAction.Next),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent
-                )
+                colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent)
             )
 
-            // TAGS INPUT
             TextField(
                 value = tags,
                 onValueChange = { tags = it },
                 placeholder = { Text("Tags (comma separated)", style = MaterialTheme.typography.bodyMedium) },
                 textStyle = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.fillMaxWidth(),
-                // Apply Incognito Mode
                 keyboardOptions = secureKeyboardOptions.copy(imeAction = ImeAction.Next),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedIndicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                    unfocusedIndicatorColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
-                ),
+                colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, focusedIndicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), unfocusedIndicatorColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)),
                 singleLine = true
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // CONTENT (RICH TEXT EDITOR)
             TextField(
                 value = textFieldValue,
                 onValueChange = { newValue ->
@@ -213,31 +209,35 @@ fun NoteEditorScreen(
                     textFieldValue = newValue
                 },
                 placeholder = { Text("Start typing...") },
-
                 visualTransformation = remember(richTextState.spans, richTextState.text) {
-                    VisualTransformation { _ ->
-                        TransformedText(
-                            richTextState.getAnnotatedString(),
-                            OffsetMapping.Identity
-                        )
-                    }
+                    VisualTransformation { _ -> TransformedText(richTextState.getAnnotatedString(), OffsetMapping.Identity) }
                 },
-
-                // Apply Incognito Mode
                 keyboardOptions = secureKeyboardOptions,
+                textStyle = TextStyle(fontFamily = getFontFamily(currentFontName), fontSize = MaterialTheme.typography.bodyLarge.fontSize, color = MaterialTheme.colorScheme.onSurface),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent)
+            )
+        }
 
-                textStyle = TextStyle(
-                    fontFamily = getFontFamily(currentFontName),
-                    fontSize = MaterialTheme.typography.bodyLarge.fontSize,
-                    color = MaterialTheme.colorScheme.onSurface
-                ),
-                modifier = Modifier.fillMaxSize(),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent
-                )
+        if (showDiscardDialog) {
+            AlertDialog(
+                onDismissRequest = { showDiscardDialog = false },
+                title = { Text("Unsaved Changes") },
+                text = { Text("Auto-save is disabled. Do you want to save your changes before exiting?") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showDiscardDialog = false
+                        onSave(title, richTextState.text, currentFontName, tags, StyleSerializer.serialize(richTextState.spans))
+                    }) { Text("Save") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        showDiscardDialog = false
+                        onDiscard()
+                    }) { Text("Discard", color = MaterialTheme.colorScheme.error) }
+                }
             )
         }
     }

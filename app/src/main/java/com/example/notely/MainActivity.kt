@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -57,18 +58,18 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.launch
 
 enum class AppScreen { NotesList, Editor, Settings, ChangePin }
 enum class ChangePinStage { VerifyOld, SetNew }
 
-// Ensure this extends FragmentActivity for BiometricPrompt compatibility
 class MainActivity : FragmentActivity() {
     private val viewModel: AppViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        // Secure flag to prevent screenshots/recent apps preview
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
 
         setContent {
@@ -106,6 +107,7 @@ class MainActivity : FragmentActivity() {
 fun AppNavigation(viewModel: AppViewModel) {
     val isAuthenticated by viewModel.isAuthenticated.collectAsState()
     val isPinSet by viewModel.isPinSet.collectAsState()
+    val isAutoSaveEnabled by viewModel.isAutoSaveEnabled.collectAsState()
 
     var currentScreen by remember { mutableStateOf(AppScreen.NotesList) }
     var currentNote by remember { mutableStateOf<Note?>(null) }
@@ -130,30 +132,45 @@ fun AppNavigation(viewModel: AppViewModel) {
                 )
             }
             AppScreen.Editor -> {
-                BackHandler {
-                    currentScreen = AppScreen.NotesList
-                    currentNote = null
-                }
                 NoteEditorScreen(
                     noteToEdit = currentNote,
-                    onSave = { title, content, fontName, tags, styleData ->
-                        if (currentNote == null) {
-                            viewModel.addNote(title, content, fontName, tags, styleData)
-                        } else {
-                            viewModel.updateNote(
-                                currentNote!!.copy(
-                                    title = title,
-                                    content = content,
-                                    fontName = fontName,
-                                    tags = tags,
-                                    styleMetadata = styleData
+                    isAutoSaveEnabled = isAutoSaveEnabled,
+                    onAutoSave = { title, content, fontName, tags, styleData ->
+                        if (isAutoSaveEnabled && (title.isNotBlank() || content.isNotBlank() || tags.isNotBlank())) {
+                            viewModel.viewModelScope.launch {
+                                val newId = viewModel.saveNoteSynchronous(
+                                    currentNote?.id, title, content, fontName, tags, styleData
                                 )
-                            )
+                                if (currentNote == null || currentNote?.id != newId) {
+                                    currentNote = Note(id = newId, title = title, content = content, fontName = fontName, tags = tags, styleMetadata = styleData)
+                                } else {
+                                    currentNote = currentNote?.copy(title = title, content = content, fontName = fontName, tags = tags, styleMetadata = styleData)
+                                }
+                            }
+                        }
+                    },
+                    onSave = { title, content, fontName, tags, styleData ->
+                        // Manual Save (Always executes)
+                        if (title.isNotBlank() || content.isNotBlank() || tags.isNotBlank()) {
+                            viewModel.viewModelScope.launch {
+                                viewModel.saveNoteSynchronous(currentNote?.id, title, content, fontName, tags, styleData)
+                            }
                         }
                         currentScreen = AppScreen.NotesList
                         currentNote = null
                     },
-                    onCancel = {
+                    onNavigateBack = { title, content, fontName, tags, styleData ->
+                        // Navigate Back (Only saves if Auto-Save is on)
+                        if (title.isNotBlank() || content.isNotBlank() || tags.isNotBlank()) {
+                            viewModel.viewModelScope.launch {
+                                viewModel.saveNoteSynchronous(currentNote?.id, title, content, fontName, tags, styleData)
+                            }
+                        }
+                        currentScreen = AppScreen.NotesList
+                        currentNote = null
+                    },
+                    onDiscard = {
+                        // Exits without hitting the database
                         currentScreen = AppScreen.NotesList
                         currentNote = null
                     }
@@ -381,18 +398,16 @@ fun SettingsScreen(
     val context = LocalContext.current
     var currentPage by remember { mutableStateOf(SettingsPage.Root) }
 
-    // --- ENCRYPTION STATES ---
     var showExportPasswordDialog by remember { mutableStateOf(false) }
     var showImportPasswordDialog by remember { mutableStateOf(false) }
     var tempPassword by remember { mutableStateOf("") }
     var selectedImportUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
-    // --- SETTINGS STATES ---
     val isClipboardClearEnabled by viewModel.isClipboardClearEnabled.collectAsState()
     val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
+    val isAutoSaveEnabled by viewModel.isAutoSaveEnabled.collectAsState()
     val canUseBiometrics = remember { viewModel.canUseBiometrics(context) }
 
-    // Logic: If in a sub-page, back goes to Root. If Root, back goes to parent (Notes List).
     BackHandler(enabled = true) {
         if (currentPage != SettingsPage.Root) {
             currentPage = SettingsPage.Root
@@ -401,7 +416,6 @@ fun SettingsScreen(
         }
     }
 
-    // --- DIALOGS & LAUNCHERS ---
     val currentTimeout by viewModel.autoLockTimeout.collectAsState()
     var showTimeoutDialog by remember { mutableStateOf(false) }
     val timeoutOptions = mapOf(
@@ -412,7 +426,6 @@ fun SettingsScreen(
         -1L to "Never"
     )
 
-    // Export Launcher (Generic file creation)
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri ->
@@ -423,7 +436,6 @@ fun SettingsScreen(
         }
     }
 
-    // Import Launcher
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -433,7 +445,6 @@ fun SettingsScreen(
         }
     }
 
-    // Observe Error Messages
     val errorMessage by viewModel.errorMessage.collectAsState()
     LaunchedEffect(errorMessage) {
         errorMessage?.let {
@@ -469,7 +480,6 @@ fun SettingsScreen(
         Column(modifier = Modifier.padding(padding).padding(16.dp)) {
 
             when (currentPage) {
-                // --- MAIN ROOT SCREEN ---
                 SettingsPage.Root -> {
                     ListItem(
                         headlineContent = { Text("Privacy & Security") },
@@ -492,9 +502,7 @@ fun SettingsScreen(
                     HorizontalDivider()
                 }
 
-                // --- PRIVACY SUB-SCREEN ---
                 SettingsPage.Privacy -> {
-                    // 1. PIN
                     ListItem(
                         headlineContent = { Text("Change PIN") },
                         leadingContent = { Icon(Icons.Default.Lock, null) },
@@ -504,7 +512,6 @@ fun SettingsScreen(
                     )
                     HorizontalDivider()
 
-                    // 2. BIOMETRIC (Only show if hardware supported)
                     if (canUseBiometrics) {
                         ListItem(
                             headlineContent = { Text("Biometric Unlock") },
@@ -521,7 +528,6 @@ fun SettingsScreen(
                         HorizontalDivider()
                     }
 
-                    // 3. AUTO LOCK
                     ListItem(
                         headlineContent = { Text("Auto-lock Timeout") },
                         supportingContent = { Text(timeoutOptions[currentTimeout] ?: "Immediately") },
@@ -532,11 +538,10 @@ fun SettingsScreen(
                     )
                     HorizontalDivider()
 
-                    // 4. CLIPBOARD
                     ListItem(
                         headlineContent = { Text("Clear Clipboard on Exit") },
                         supportingContent = { Text("Prevents leaks to other apps") },
-                        leadingContent = { Icon(Icons.Default.ContentPaste, null) }, // Added Clipboard Icon
+                        leadingContent = { Icon(Icons.Default.ContentPaste, null) },
                         trailingContent = {
                             Switch(
                                 checked = isClipboardClearEnabled,
@@ -548,8 +553,21 @@ fun SettingsScreen(
                     HorizontalDivider()
                 }
 
-                // --- DATA SUB-SCREEN ---
                 SettingsPage.Data -> {
+                    ListItem(
+                        headlineContent = { Text("Auto-Save Notes") },
+                        supportingContent = { Text("Automatically save drafts while typing") },
+                        leadingContent = { Icon(Icons.Default.Save, null) },
+                        trailingContent = {
+                            Switch(
+                                checked = isAutoSaveEnabled,
+                                onCheckedChange = { viewModel.toggleAutoSave() }
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    HorizontalDivider()
+
                     ListItem(
                         headlineContent = { Text("Export Encrypted Backup") },
                         supportingContent = { Text("Save password-protected file") },
@@ -721,13 +739,11 @@ fun PinScreen(title: String, viewModel: AppViewModel, isSetup: Boolean) {
     var pin by remember { mutableStateOf("") }
     val error by viewModel.errorMessage.collectAsState()
     val focusRequester = remember { FocusRequester() }
-    val context = LocalContext.current // Use context to find activity safely
+    val context = LocalContext.current
     val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
 
-    // SAFELY FIND FRAGMENT ACTIVITY
     val activity = remember(context) { context.findFragmentActivity() }
 
-    // Launch Biometric Prompt ONLY if not setup mode, enabled in settings, and activity valid
     LaunchedEffect(Unit) {
         if (!isSetup && isBiometricEnabled && activity != null) {
             viewModel.showBiometricPrompt(activity)
@@ -762,7 +778,6 @@ fun PinScreen(title: String, viewModel: AppViewModel, isSetup: Boolean) {
         )
         if (error != null) { Spacer(modifier = Modifier.height(16.dp)); Text(text = error ?: "", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
 
-        // Manual Trigger for Biometric
         if (!isSetup && isBiometricEnabled && activity != null) {
             Spacer(modifier = Modifier.height(32.dp))
             IconButton(
@@ -775,7 +790,6 @@ fun PinScreen(title: String, viewModel: AppViewModel, isSetup: Boolean) {
     }
 }
 
-// --- HELPER FUNCTION: Safely unwraps Context to find FragmentActivity ---
 fun Context.findFragmentActivity(): FragmentActivity? {
     var context = this
     while (context is ContextWrapper) {
