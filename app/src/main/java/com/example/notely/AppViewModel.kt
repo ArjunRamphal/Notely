@@ -18,6 +18,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.security.SecureRandom
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import java.security.KeyStore
+import javax.crypto.KeyGenerator
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
 import javax.crypto.SecretKeyFactory
@@ -194,6 +199,45 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // --- BIOMETRIC SECURITY ---
+    private fun getBiometricCipher(): Cipher? {
+        val keyName = "notely_biometric_key"
+        try {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore")
+            keyStore.load(null)
+
+            if (!keyStore.containsAlias(keyName)) {
+                val keyGenerator = KeyGenerator.getInstance(
+                    KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore"
+                )
+                keyGenerator.init(
+                    KeyGenParameterSpec.Builder(
+                        keyName,
+                        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                    )
+                    .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
+                    .setUserAuthenticationRequired(true)
+                    .build()
+                )
+                keyGenerator.generateKey()
+            }
+
+            val secretKey = keyStore.getKey(keyName, null) as SecretKey
+            val cipher = Cipher.getInstance(
+                "${KeyProperties.KEY_ALGORITHM_AES}/${KeyProperties.BLOCK_MODE_CBC}/${KeyProperties.ENCRYPTION_PADDING_PKCS7}"
+            )
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+            return cipher
+        } catch (e: KeyPermanentlyInvalidatedException) {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore")
+            keyStore.load(null)
+            keyStore.deleteEntry(keyName)
+            return null
+        } catch (e: Exception) {
+            return null
+        }
+    }
+
     private val _isBiometricEnabled = MutableStateFlow(prefs.getBoolean("biometric_enabled", false))
     val isBiometricEnabled = _isBiometricEnabled.asStateFlow()
 
@@ -215,10 +259,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     super.onAuthenticationSucceeded(result)
-                    _isAuthenticated.value = true
-                    _errorMessage.value = null
-                    _lockoutTimeRemaining.value = 0L
-                    pinManager.resetFailures() // Using Biometrics completely wipes the PIN penalty
+                    try {
+                        // Verify cryptographically
+                        result.cryptoObject!!.cipher!!.doFinal("dummy".toByteArray())
+                        _isAuthenticated.value = true
+                        _errorMessage.value = null
+                        _lockoutTimeRemaining.value = 0L
+                        pinManager.resetFailures() // Using Biometrics completely wipes the PIN penalty
+                    } catch (e: Exception) {
+                        _errorMessage.value = "Biometric Error: Authentication could not be cryptographically verified."
+                    }
                 }
 
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
@@ -237,7 +287,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
             .build()
 
-        biometricPrompt.authenticate(promptInfo)
+        val cipher = getBiometricCipher()
+        if (cipher != null) {
+            biometricPrompt.authenticate(promptInfo, BiometricPrompt.CryptoObject(cipher))
+        } else {
+            // Fallback or error if cipher generation fails (e.g. key invalidated and setup needed)
+            _errorMessage.value = "Biometric Error: Cryptographic key invalid. Please re-enroll."
+        }
     }
 
     // --- NOTE LOGIC ---
