@@ -1,6 +1,7 @@
 package com.example.notely
 
 import android.content.Context
+import android.os.SystemClock
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -175,7 +176,7 @@ class PinManager(context: Context) {
     private fun isLockedOut(): Boolean {
         if (!isLockoutEnabled()) return false
         val lockoutTime = sharedPreferences.getLong("LOCKOUT_TIMESTAMP", 0)
-        return System.currentTimeMillis() < lockoutTime
+        return SystemClock.elapsedRealtime() < lockoutTime
     }
 
     private fun incrementFailures() {
@@ -188,7 +189,7 @@ class PinManager(context: Context) {
             val multiplier = sharedPreferences.getInt("LOCKOUT_MULTIPLIER", 1)
             val duration = BASE_LOCKOUT_DURATION_MS * multiplier
 
-            editor.putLong("LOCKOUT_TIMESTAMP", System.currentTimeMillis() + duration)
+            editor.putLong("LOCKOUT_TIMESTAMP", SystemClock.elapsedRealtime() + duration)
             editor.putInt("LOCKOUT_MULTIPLIER", multiplier * 2) // Double it for the next lockout
             editor.putInt("FAILED_ATTEMPTS", 0) // Reset so they get 5 fresh attempts AFTER the lockout expires
         } else {
@@ -214,7 +215,7 @@ class PinManager(context: Context) {
         if (!isLockoutEnabled()) return 0
 
         val lockoutTime = sharedPreferences.getLong("LOCKOUT_TIMESTAMP", 0)
-        val now = System.currentTimeMillis()
+        val now = SystemClock.elapsedRealtime()
         return if (now < lockoutTime) (lockoutTime - now) / 1000 else 0 // returns seconds remaining
     }
 
