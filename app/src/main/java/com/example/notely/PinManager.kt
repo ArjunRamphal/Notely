@@ -88,7 +88,6 @@ class PinManager(context: Context) {
                 return false
             }
         } catch (e: Exception) {
-            e.printStackTrace()
             // If decryption fails (e.g., biometrics changed, key invalidated), fail safely
             return false
         }
