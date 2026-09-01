@@ -359,9 +359,11 @@ fun NoteCard(
             )
 
             if (note.tags.isNotEmpty()) {
+                val tagList = remember(note.tags) {
+                    note.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    val tagList = note.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
                     items(tagList) { tag ->
                         Surface(
                             shape = CircleShape,
