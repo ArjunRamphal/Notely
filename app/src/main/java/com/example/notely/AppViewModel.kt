@@ -14,6 +14,7 @@ import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -116,6 +117,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _isPinLockoutEnabled = MutableStateFlow(pinManager.isLockoutEnabled())
     val isPinLockoutEnabled = _isPinLockoutEnabled.asStateFlow()
 
+    private var lockoutTimerJob: Job? = null
+
     init {
         val remaining = pinManager.getRemainingLockoutTime()
         if (remaining > 0) {
@@ -138,16 +141,27 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun startLockoutTimer() {
-        viewModelScope.launch {
+        lockoutTimerJob?.cancel()
+        lockoutTimerJob = viewModelScope.launch {
+            val initialRemaining = pinManager.getRemainingLockoutTime()
+            if (initialRemaining <= 0) {
+                _lockoutTimeRemaining.value = 0
+                _errorMessage.value = null
+                return@launch
+            }
+
+            val targetEndTimeMs = System.currentTimeMillis() + (initialRemaining * 1000)
+
             while (true) {
-                val remaining = pinManager.getRemainingLockoutTime()
-                _lockoutTimeRemaining.value = remaining
-                if (remaining <= 0) {
-                    _errorMessage.value = null
+                val currentRemainingMs = targetEndTimeMs - System.currentTimeMillis()
+                if (currentRemainingMs <= 0) {
                     break
                 }
+                _lockoutTimeRemaining.value = currentRemainingMs / 1000
                 delay(1000)
             }
+            _lockoutTimeRemaining.value = 0
+            _errorMessage.value = null
         }
     }
 
