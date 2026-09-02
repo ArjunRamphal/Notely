@@ -58,6 +58,25 @@ class PinManager(context: Context) {
             .apply()
     }
 
+    private fun verifyPinHash(inputPin: String, encryptedData: String?): Boolean {
+        if (encryptedData == null) return false
+        try {
+            val decryptedString = decryptData(encryptedData)
+            val parts = decryptedString.split(":")
+
+            if (parts.size != 2) return false
+
+            val storedSalt = parts[0]
+            val storedHash = parts[1]
+
+            val inputHash = hashPin(inputPin, storedSalt)
+            return inputHash == storedHash
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return false
+        }
+    }
+
     /**
      * 1. Retrieve encrypted blob.
      * 2. Decrypt it using Android Keystore.
@@ -69,33 +88,60 @@ class PinManager(context: Context) {
 
         val encryptedData = sharedPreferences.getString("ENCRYPTED_PIN_DATA", null) ?: return false
 
-        try {
-            val decryptedString = decryptData(encryptedData)
-            val parts = decryptedString.split(":")
-
-            if (parts.size != 2) return false
-
-            val storedSalt = parts[0]
-            val storedHash = parts[1]
-
-            val inputHash = hashPin(inputPin, storedSalt)
-
-            if (inputHash == storedHash) {
-                resetFailures()
-                return true
-            } else {
-                incrementFailures()
-                return false
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            // If decryption fails (e.g., biometrics changed, key invalidated), fail safely
+        if (verifyPinHash(inputPin, encryptedData)) {
+            resetFailures()
+            return true
+        } else {
+            incrementFailures()
             return false
         }
     }
 
+    fun verifyMainPinSilently(inputPin: String): Boolean {
+        val encryptedData = sharedPreferences.getString("ENCRYPTED_PIN_DATA", null)
+        return verifyPinHash(inputPin, encryptedData)
+    }
+
     fun isPinSet(): Boolean {
         return sharedPreferences.contains("ENCRYPTED_PIN_DATA")
+    }
+
+    fun saveSelfDestructPin(pin: String) {
+        val salt = generateSalt()
+        val hash = hashPin(pin, salt)
+        val dataToStore = "$salt:$hash"
+        val encryptedData = encryptData(dataToStore)
+        sharedPreferences.edit()
+            .putString("ENCRYPTED_SELF_DESTRUCT_PIN_DATA", encryptedData)
+            .apply()
+    }
+
+    fun isSelfDestructPinSet(): Boolean {
+        return sharedPreferences.contains("ENCRYPTED_SELF_DESTRUCT_PIN_DATA")
+    }
+
+    fun checkSelfDestructPin(inputPin: String): Boolean {
+        val encryptedData = sharedPreferences.getString("ENCRYPTED_SELF_DESTRUCT_PIN_DATA", null)
+        return verifyPinHash(inputPin, encryptedData)
+    }
+
+    fun clearSelfDestructPin() {
+        sharedPreferences.edit()
+            .remove("ENCRYPTED_SELF_DESTRUCT_PIN_DATA")
+            .apply()
+    }
+
+    fun wipeAllSecureData() {
+        sharedPreferences.edit().clear().apply()
+        try {
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
+            keyStore.load(null)
+            if (keyStore.containsAlias(KEY_ALIAS)) {
+                keyStore.deleteEntry(KEY_ALIAS)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     // --- SETTINGS LOGIC ---
