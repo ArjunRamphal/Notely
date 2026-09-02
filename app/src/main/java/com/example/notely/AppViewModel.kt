@@ -91,7 +91,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     clipboard.setPrimaryClip(clip)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
     }
@@ -383,8 +382,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     output.write(encryptedBytes)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
-                _errorMessage.value = "Export Failed: ${e.message}"
+                _errorMessage.value = "Export Failed: An error occurred during encryption."
             }
         }
     }
@@ -415,7 +413,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 _errorMessage.value = "Import Successful"
             } catch (e: Exception) {
-                e.printStackTrace()
                 _errorMessage.value = "Import Failed: Incorrect Password or Corrupt File"
             }
         }

@@ -6,7 +6,6 @@ import android.content.ContextWrapper
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.activity.enableEdgeToEdge
@@ -251,10 +250,12 @@ fun NotesScreen(
     var noteToDelete by remember { mutableStateOf<Note?>(null) }
     var searchQuery by remember { mutableStateOf("") }
 
-    val filteredNotes = notes.filter {
-        it.title.contains(searchQuery, ignoreCase = true) ||
-                it.content.contains(searchQuery, ignoreCase = true) ||
-                it.tags.contains(searchQuery, ignoreCase = true)
+    val filteredNotes = remember(notes, searchQuery) {
+        notes.filter {
+            it.title.contains(searchQuery, ignoreCase = true) ||
+                    it.content.contains(searchQuery, ignoreCase = true) ||
+                    it.tags.contains(searchQuery, ignoreCase = true)
+        }
     }
 
     Scaffold(
