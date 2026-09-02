@@ -3,6 +3,7 @@ package com.example.notely
 import android.app.Application
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
@@ -81,7 +82,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onAppStop() {
-        lastBackgroundTimestamp = System.currentTimeMillis()
+        lastBackgroundTimestamp = SystemClock.elapsedRealtime()
 
         if (_isClipboardClearEnabled.value) {
             try {
@@ -98,7 +99,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun onAppStart() {
         if (_autoLockTimeout.value == -1L) return
         if (_isAuthenticated.value) {
-            val elapsed = System.currentTimeMillis() - lastBackgroundTimestamp
+            val elapsed = SystemClock.elapsedRealtime() - lastBackgroundTimestamp
             if (elapsed > _autoLockTimeout.value) {
                 _isAuthenticated.value = false
             }
