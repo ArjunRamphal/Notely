@@ -6,13 +6,15 @@ import android.content.ContextWrapper
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.getValue
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -40,7 +42,9 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Timer // Added for the new setting
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -62,7 +66,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 
-enum class AppScreen { NotesList, Editor, Settings, ChangePin }
+enum class AppScreen { NotesList, Editor, Settings, ChangePin, SetSelfDestructPin }
 enum class ChangePinStage { VerifyOld, SetNew }
 
 class MainActivity : FragmentActivity() {
@@ -109,6 +113,7 @@ fun AppNavigation(viewModel: AppViewModel) {
     val isAuthenticated by viewModel.isAuthenticated.collectAsState()
     val isPinSet by viewModel.isPinSet.collectAsState()
     val isAutoSaveEnabled by viewModel.isAutoSaveEnabled.collectAsState()
+    val isPinScrambleEnabled by viewModel.isPinScrambleEnabled.collectAsState()
 
     var currentScreen by remember { mutableStateOf(AppScreen.NotesList) }
     var currentNote by remember { mutableStateOf<Note?>(null) }
@@ -139,39 +144,31 @@ fun AppNavigation(viewModel: AppViewModel) {
                     onAutoSave = { title, content, fontName, tags, styleData ->
                         if (isAutoSaveEnabled && (title.isNotBlank() || content.isNotBlank() || tags.isNotBlank())) {
                             viewModel.viewModelScope.launch {
-                                val newId = viewModel.saveNoteSynchronous(
-                                    currentNote?.id, title, content, fontName, tags, styleData
+                                currentNote = viewModel.saveNoteSynchronous(
+                                    currentNote, title, content, fontName, tags, styleData
                                 )
-                                if (currentNote == null || currentNote?.id != newId) {
-                                    currentNote = Note(id = newId, title = title, content = content, fontName = fontName, tags = tags, styleMetadata = styleData)
-                                } else {
-                                    currentNote = currentNote?.copy(title = title, content = content, fontName = fontName, tags = tags, styleMetadata = styleData)
-                                }
                             }
                         }
                     },
                     onSave = { title, content, fontName, tags, styleData ->
-                        // Manual Save (Always executes)
                         if (title.isNotBlank() || content.isNotBlank() || tags.isNotBlank()) {
                             viewModel.viewModelScope.launch {
-                                viewModel.saveNoteSynchronous(currentNote?.id, title, content, fontName, tags, styleData)
+                                viewModel.saveNoteSynchronous(currentNote, title, content, fontName, tags, styleData)
                             }
                         }
                         currentScreen = AppScreen.NotesList
                         currentNote = null
                     },
                     onNavigateBack = { title, content, fontName, tags, styleData ->
-                        // Navigate Back (Only saves if Auto-Save is on)
                         if (title.isNotBlank() || content.isNotBlank() || tags.isNotBlank()) {
                             viewModel.viewModelScope.launch {
-                                viewModel.saveNoteSynchronous(currentNote?.id, title, content, fontName, tags, styleData)
+                                viewModel.saveNoteSynchronous(currentNote, title, content, fontName, tags, styleData)
                             }
                         }
                         currentScreen = AppScreen.NotesList
                         currentNote = null
                     },
                     onDiscard = {
-                        // Exits without hitting the database
                         currentScreen = AppScreen.NotesList
                         currentNote = null
                     }
@@ -184,6 +181,9 @@ fun AppNavigation(viewModel: AppViewModel) {
                         changePinStage = ChangePinStage.VerifyOld
                         currentScreen = AppScreen.ChangePin
                     },
+                    onSetSelfDestructClick = {
+                        currentScreen = AppScreen.SetSelfDestructPin
+                    },
                     viewModel = viewModel
                 )
             }
@@ -194,6 +194,7 @@ fun AppNavigation(viewModel: AppViewModel) {
                 ChangePinScreen(
                     stage = changePinStage,
                     viewModel = viewModel,
+                    isScrambled = isPinScrambleEnabled,
                     onSuccess = {
                         changePinStage = ChangePinStage.SetNew
                     },
@@ -205,12 +206,29 @@ fun AppNavigation(viewModel: AppViewModel) {
                     }
                 )
             }
+            AppScreen.SetSelfDestructPin -> {
+                BackHandler {
+                    viewModel.clearErrorMessage()
+                    currentScreen = AppScreen.Settings
+                }
+                SetSelfDestructPinScreen(
+                    viewModel = viewModel,
+                    isScrambled = isPinScrambleEnabled,
+                    onFinished = {
+                        currentScreen = AppScreen.Settings
+                    },
+                    onCancel = {
+                        viewModel.clearErrorMessage()
+                        currentScreen = AppScreen.Settings
+                    }
+                )
+            }
         }
     } else {
         if (isPinSet) {
-            PinScreen(title = "", viewModel = viewModel, isSetup = false)
+            PinScreen(title = "", viewModel = viewModel, isSetup = false, isScrambled = isPinScrambleEnabled)
         } else {
-            PinScreen(title = "Setup Notely PIN", viewModel = viewModel, isSetup = true)
+            PinScreen(title = "Setup Notely PIN", viewModel = viewModel, isSetup = true, isScrambled = false)
         }
     }
 }
@@ -228,10 +246,12 @@ fun NotesScreen(
     var noteToDelete by remember { mutableStateOf<Note?>(null) }
     var searchQuery by remember { mutableStateOf("") }
 
-    val filteredNotes = notes.filter {
-        it.title.contains(searchQuery, ignoreCase = true) ||
-                it.content.contains(searchQuery, ignoreCase = true) ||
-                it.tags.contains(searchQuery, ignoreCase = true)
+    val filteredNotes = remember(notes, searchQuery) {
+        notes.filter {
+            it.title.contains(searchQuery, ignoreCase = true) ||
+                    it.content.contains(searchQuery, ignoreCase = true) ||
+                    it.tags.contains(searchQuery, ignoreCase = true)
+        }
     }
 
     Scaffold(
@@ -359,9 +379,11 @@ fun NoteCard(
             )
 
             if (note.tags.isNotEmpty()) {
+                val tagList = remember(note.tags) {
+                    note.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    val tagList = note.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
                     items(tagList) { tag ->
                         Surface(
                             shape = CircleShape,
@@ -394,6 +416,7 @@ private enum class SettingsPage { Root, Privacy, Data }
 fun SettingsScreen(
     onBackClick: () -> Unit,
     onChangePinClick: () -> Unit,
+    onSetSelfDestructClick: () -> Unit,
     viewModel: AppViewModel
 ) {
     val context = LocalContext.current
@@ -403,11 +426,14 @@ fun SettingsScreen(
     var showImportPasswordDialog by remember { mutableStateOf(false) }
     var tempPassword by remember { mutableStateOf("") }
     var selectedImportUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var showRemoveSelfDestructDialog by remember { mutableStateOf(false) }
 
     val isClipboardClearEnabled by viewModel.isClipboardClearEnabled.collectAsState()
     val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
     val isAutoSaveEnabled by viewModel.isAutoSaveEnabled.collectAsState()
-    val isPinLockoutEnabled by viewModel.isPinLockoutEnabled.collectAsState() // NEW
+    val isPinLockoutEnabled by viewModel.isPinLockoutEnabled.collectAsState()
+    val isPinScrambleEnabled by viewModel.isPinScrambleEnabled.collectAsState()
+    val isSelfDestructSet by viewModel.isSelfDestructSet.collectAsState()
     val canUseBiometrics = remember { viewModel.canUseBiometrics(context) }
 
     BackHandler(enabled = true) {
@@ -449,8 +475,8 @@ fun SettingsScreen(
 
     val errorMessage by viewModel.errorMessage.collectAsState()
     LaunchedEffect(errorMessage) {
-        errorMessage?.let {
-            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+        if (errorMessage != null && !errorMessage!!.contains("PIN")) {
+            Toast.makeText(context, errorMessage, Toast.LENGTH_LONG).show()
         }
     }
 
@@ -514,7 +540,25 @@ fun SettingsScreen(
                     )
                     HorizontalDivider()
 
-                    // NEW: Lockout Timer Toggle
+                    ListItem(
+                        headlineContent = { Text("Self-Destruct PIN") },
+                        supportingContent = {
+                            if (isSelfDestructSet) Text("Active - Entering will wipe device", color = MaterialTheme.colorScheme.error)
+                            else Text("Tap to set a wipe PIN")
+                        },
+                        leadingContent = { Icon(Icons.Default.Warning, null, tint = if (isSelfDestructSet) MaterialTheme.colorScheme.error else LocalContentColor.current) },
+                        modifier = Modifier
+                            .clickable {
+                                if (isSelfDestructSet) {
+                                    showRemoveSelfDestructDialog = true
+                                } else {
+                                    onSetSelfDestructClick()
+                                }
+                            }
+                            .fillMaxWidth()
+                    )
+                    HorizontalDivider()
+
                     ListItem(
                         headlineContent = { Text("PIN Lockout Timer") },
                         supportingContent = { Text("Progressive lockout after 5 failed attempts") },
@@ -523,6 +567,20 @@ fun SettingsScreen(
                             Switch(
                                 checked = isPinLockoutEnabled,
                                 onCheckedChange = { viewModel.togglePinLockout() }
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    HorizontalDivider()
+
+                    ListItem(
+                        headlineContent = { Text("Scramble PIN Keypad") },
+                        supportingContent = { Text("Randomizes the number layout for extra security") },
+                        leadingContent = { Icon(Icons.Default.Apps, null) },
+                        trailingContent = {
+                            Switch(
+                                checked = isPinScrambleEnabled,
+                                onCheckedChange = { viewModel.togglePinScramble() }
                             )
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -609,6 +667,25 @@ fun SettingsScreen(
                     HorizontalDivider()
                 }
             }
+        }
+
+        if (showRemoveSelfDestructDialog) {
+            AlertDialog(
+                onDismissRequest = { showRemoveSelfDestructDialog = false },
+                title = { Text("Remove Self-Destruct PIN?") },
+                text = { Text("Are you sure you want to disable the self-destruct PIN? The wipe action will no longer trigger.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.removeSelfDestructPin()
+                        showRemoveSelfDestructDialog = false
+                    }) {
+                        Text("Remove", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRemoveSelfDestructDialog = false }) { Text("Cancel") }
+                }
+            )
         }
 
         if (showExportPasswordDialog) {
@@ -704,32 +781,104 @@ fun SettingsScreen(
 }
 
 @Composable
+fun SetSelfDestructPinScreen(
+    viewModel: AppViewModel,
+    isScrambled: Boolean,
+    onFinished: () -> Unit,
+    onCancel: () -> Unit
+) {
+    var pin by remember { mutableStateOf("") }
+    val error by viewModel.errorMessage.collectAsState()
+
+    Column(modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(64.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(text = "Set Self-Destruct PIN", style = MaterialTheme.typography.headlineMedium)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(text = "Entering this PIN on the lock screen will immediately wipe all device data.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+        Spacer(modifier = Modifier.height(32.dp))
+
+        PinDisplay(pin = pin, isError = error != null)
+
+        if (error != null) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(text = error!!, color = MaterialTheme.colorScheme.error)
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        PinKeypad(
+            isScrambled = isScrambled,
+            enabled = true,
+            onDigitClick = { digit ->
+                if (pin.length < 4) {
+                    if (error != null) viewModel.clearErrorMessage() // CLEAR ERROR
+                    pin += digit
+                    if (pin.length == 4) {
+                        if (viewModel.setSelfDestructPin(pin)) {
+                            onFinished()
+                        } else {
+                            pin = ""
+                        }
+                    }
+                }
+            },
+            onBackspaceClick = {
+                if (pin.isNotEmpty()) {
+                    pin = pin.dropLast(1)
+                    if (error != null) viewModel.clearErrorMessage()
+                }
+            }
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+        TextButton(onClick = onCancel) { Text("Cancel") }
+    }
+}
+
+@Composable
 fun ChangePinScreen(
     stage: ChangePinStage,
     viewModel: AppViewModel,
+    isScrambled: Boolean,
     onSuccess: () -> Unit,
     onFinished: () -> Unit,
     onCancel: () -> Unit
 ) {
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
-    val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
-    LaunchedEffect(stage) { focusRequester.requestFocus() }
     val title = if (stage == ChangePinStage.VerifyOld) "Enter Current PIN" else "Enter New PIN"
 
     Column(modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Text(text = title, style = MaterialTheme.typography.headlineMedium)
         Spacer(modifier = Modifier.height(32.dp))
-        OutlinedTextField(
-            value = pin,
-            onValueChange = { newPin ->
-                if (newPin.all { it.isDigit() } && newPin.length <= 4) {
-                    pin = newPin
+
+        PinDisplay(pin = pin, isError = error != null)
+
+        if (error != null) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(text = error!!, color = MaterialTheme.colorScheme.error)
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        PinKeypad(
+            isScrambled = isScrambled,
+            enabled = true,
+            onDigitClick = { digit ->
+                if (pin.length < 4) {
+                    if (error != null) error = null // CLEAR ERROR
+                    pin += digit
                     if (pin.length == 4) {
                         if (stage == ChangePinStage.VerifyOld) {
-                            if (viewModel.verifyOldPin(pin)) { pin = ""; error = null; onSuccess() }
-                            else { pin = ""; error = "Incorrect PIN" }
+                            if (viewModel.verifyOldPin(pin)) {
+                                pin = ""
+                                error = null
+                                onSuccess()
+                            } else {
+                                pin = ""
+                                error = "Incorrect PIN"
+                            }
                         } else {
                             viewModel.setPin(pin)
                             onFinished()
@@ -737,26 +886,24 @@ fun ChangePinScreen(
                     }
                 }
             },
-            label = { Text("PIN") },
-            textStyle = MaterialTheme.typography.headlineMedium,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-            isError = error != null,
-            singleLine = true,
-            modifier = Modifier.width(200.dp).focusRequester(focusRequester)
+            onBackspaceClick = {
+                if (pin.isNotEmpty()) {
+                    pin = pin.dropLast(1)
+                    error = null
+                }
+            }
         )
-        if (error != null) { Spacer(modifier = Modifier.height(16.dp)); Text(text = error!!, color = MaterialTheme.colorScheme.error) }
-        Spacer(modifier = Modifier.height(32.dp))
+
+        Spacer(modifier = Modifier.height(16.dp))
         TextButton(onClick = onCancel) { Text("Cancel") }
     }
 }
 
 @Composable
-fun PinScreen(title: String, viewModel: AppViewModel, isSetup: Boolean) {
+fun PinScreen(title: String, viewModel: AppViewModel, isSetup: Boolean, isScrambled: Boolean) {
     var pin by remember { mutableStateOf("") }
     val error by viewModel.errorMessage.collectAsState()
     val lockoutTime by viewModel.lockoutTimeRemaining.collectAsState()
-    val focusRequester = remember { FocusRequester() }
     val context = LocalContext.current
     val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
 
@@ -767,39 +914,15 @@ fun PinScreen(title: String, viewModel: AppViewModel, isSetup: Boolean) {
         if (!isSetup && isBiometricEnabled && activity != null && !isLockedOut) {
             viewModel.showBiometricPrompt(activity)
         }
-        if (!isLockedOut) {
-            focusRequester.requestFocus()
-        }
     }
 
     Column(modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        if (title.isNotEmpty()) { Text(text = title, style = MaterialTheme.typography.headlineMedium); Spacer(modifier = Modifier.height(32.dp)) }
+        if (title.isNotEmpty()) {
+            Text(text = title, style = MaterialTheme.typography.headlineMedium)
+            Spacer(modifier = Modifier.height(32.dp))
+        }
 
-        OutlinedTextField(
-            value = pin,
-            onValueChange = { newPin ->
-                if (!isLockedOut && newPin.all { it.isDigit() } && newPin.length <= 4) {
-                    pin = newPin
-                    if (pin.length == 4) {
-                        if (isSetup) viewModel.setPin(pin)
-                        else {
-                            viewModel.checkPin(pin)
-                            if (viewModel.isAuthenticated.value == false) pin = ""
-                        }
-                    }
-                }
-            },
-            label = { Text("Enter PIN") },
-            textStyle = MaterialTheme.typography.headlineMedium,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-            isError = error != null || isLockedOut,
-            singleLine = true,
-            enabled = !isLockedOut, // Prevents typing while locked out
-            modifier = Modifier.width(200.dp).let {
-                if (!isLockedOut) it.focusRequester(focusRequester) else it
-            }
-        )
+        PinDisplay(pin = pin, isError = error != null || isLockedOut)
 
         if (isLockedOut) {
             Spacer(modifier = Modifier.height(16.dp))
@@ -807,7 +930,6 @@ fun PinScreen(title: String, viewModel: AppViewModel, isSetup: Boolean) {
             val minutes = (lockoutTime % 3600) / 60
             val seconds = lockoutTime % 60
 
-            // Format time accurately since it doubles and can stretch into hours
             val formattedTime = if (hours > 0) {
                 String.format("%02d:%02d:%02d", hours, minutes, seconds)
             } else {
@@ -825,7 +947,32 @@ fun PinScreen(title: String, viewModel: AppViewModel, isSetup: Boolean) {
             Text(text = error ?: "", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
         }
 
-        // Keep Biometric Button accessible (Can bypass the PIN timer penalty)
+        Spacer(modifier = Modifier.height(32.dp))
+
+        PinKeypad(
+            isScrambled = isScrambled,
+            enabled = !isLockedOut,
+            onDigitClick = { digit ->
+                if (!isLockedOut && pin.length < 4) {
+                    if (error != null) viewModel.clearErrorMessage() // CLEAR ERROR
+                    pin += digit
+                    if (pin.length == 4) {
+                        if (isSetup) viewModel.setPin(pin)
+                        else {
+                            viewModel.checkPin(pin)
+                            if (viewModel.isAuthenticated.value == false) pin = ""
+                        }
+                    }
+                }
+            },
+            onBackspaceClick = {
+                if (pin.isNotEmpty() && !isLockedOut) {
+                    pin = pin.dropLast(1)
+                    if (error != null) viewModel.clearErrorMessage()
+                }
+            }
+        )
+
         if (!isSetup && isBiometricEnabled && activity != null) {
             Spacer(modifier = Modifier.height(32.dp))
             IconButton(
@@ -833,6 +980,83 @@ fun PinScreen(title: String, viewModel: AppViewModel, isSetup: Boolean) {
                 modifier = Modifier.size(64.dp)
             ) {
                 Icon(Icons.Default.Fingerprint, "Unlock with Biometrics", modifier = Modifier.fillMaxSize())
+            }
+        }
+    }
+}
+
+@Composable
+fun PinDisplay(pin: String, isError: Boolean) {
+    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        for (i in 0 until 4) {
+            val isFilled = i < pin.length
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .background(
+                        color = if (isError) MaterialTheme.colorScheme.error else if (isFilled) MaterialTheme.colorScheme.primary else Color.Transparent,
+                        shape = CircleShape
+                    )
+                    .border(
+                        width = 2.dp,
+                        color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        shape = CircleShape
+                    )
+            )
+        }
+    }
+}
+
+@Composable
+fun PinKeypad(
+    isScrambled: Boolean,
+    enabled: Boolean,
+    onDigitClick: (String) -> Unit,
+    onBackspaceClick: () -> Unit
+) {
+    val keys = remember(isScrambled) {
+        if (isScrambled) {
+            val digits = (0..9).toList().shuffled()
+            listOf(
+                digits[0].toString(), digits[1].toString(), digits[2].toString(),
+                digits[3].toString(), digits[4].toString(), digits[5].toString(),
+                digits[6].toString(), digits[7].toString(), digits[8].toString(),
+                "", digits[9].toString(), "DEL"
+            )
+        } else {
+            listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "DEL")
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp)) {
+        for (i in 0 until 4) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                for (j in 0 until 3) {
+                    val key = keys[i * 3 + j]
+                    if (key.isEmpty()) {
+                        Spacer(modifier = Modifier.size(64.dp))
+                    } else if (key == "DEL") {
+                        IconButton(
+                            onClick = onBackspaceClick,
+                            enabled = enabled,
+                            modifier = Modifier.size(64.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Backspace")
+                        }
+                    } else {
+                        TextButton(
+                            onClick = { onDigitClick(key) },
+                            enabled = enabled,
+                            modifier = Modifier.size(64.dp),
+                            shape = CircleShape
+                        ) {
+                            Text(key, style = MaterialTheme.typography.headlineMedium)
+                        }
+                    }
+                }
             }
         }
     }
