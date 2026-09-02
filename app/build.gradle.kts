@@ -57,7 +57,6 @@ dependencies {
     // 2. Room Database (Local Storage)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
-    implementation(libs.androidx.biometric.ktx)
     implementation(libs.androidx.fragment.ktx)
     ksp(libs.androidx.room.compiler) // Uses KSP plugin
 
