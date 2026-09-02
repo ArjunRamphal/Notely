@@ -227,10 +227,12 @@ fun NotesScreen(
     var noteToDelete by remember { mutableStateOf<Note?>(null) }
     var searchQuery by remember { mutableStateOf("") }
 
-    val filteredNotes = notes.filter {
-        it.title.contains(searchQuery, ignoreCase = true) ||
-                it.content.contains(searchQuery, ignoreCase = true) ||
-                it.tags.contains(searchQuery, ignoreCase = true)
+    val filteredNotes = remember(notes, searchQuery) {
+        notes.filter {
+            it.title.contains(searchQuery, ignoreCase = true) ||
+                    it.content.contains(searchQuery, ignoreCase = true) ||
+                    it.tags.contains(searchQuery, ignoreCase = true)
+        }
     }
 
     Scaffold(
