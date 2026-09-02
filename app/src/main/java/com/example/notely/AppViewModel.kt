@@ -27,7 +27,6 @@ import javax.crypto.spec.SecretKeySpec
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
-    // --- PREFERENCES ---
     private val prefs = application.getSharedPreferences("notely_prefs", Context.MODE_PRIVATE)
 
     // THEME
@@ -48,6 +47,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val newSetting = !_isClipboardClearEnabled.value
         _isClipboardClearEnabled.value = newSetting
         prefs.edit().putBoolean("clipboard_autoclear", newSetting).apply()
+    }
+
+    // SCRAMBLE KEYPAD
+    private val _isPinScrambleEnabled = MutableStateFlow(prefs.getBoolean("pin_scramble_enabled", false))
+    val isPinScrambleEnabled = _isPinScrambleEnabled.asStateFlow()
+
+    fun togglePinScramble() {
+        val newSetting = !_isPinScrambleEnabled.value
+        _isPinScrambleEnabled.value = newSetting
+        prefs.edit().putBoolean("pin_scramble_enabled", newSetting).apply()
     }
 
     // AUTO-SAVE NOTES
@@ -74,17 +83,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun onAppStop() {
         lastBackgroundTimestamp = System.currentTimeMillis()
 
-        // SECURITY FEATURE: Wipe Clipboard on Exit if enabled
         if (_isClipboardClearEnabled.value) {
             try {
                 val clipboard = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 if (clipboard.hasPrimaryClip()) {
-                    // Overwrite with empty data to clear sensitive info
                     val clip = android.content.ClipData.newPlainText("Notely", "")
                     clipboard.setPrimaryClip(clip)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
     }
@@ -99,7 +105,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // --- PIN LOGIC ---
+    // PIN LOGIC
     private val pinManager = PinManager(application)
     private val _isAuthenticated = MutableStateFlow(false)
     val isAuthenticated = _isAuthenticated.asStateFlow()
@@ -113,9 +119,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _lockoutTimeRemaining = MutableStateFlow(0L)
     val lockoutTimeRemaining = _lockoutTimeRemaining.asStateFlow()
 
-    // NEW: Expose settings toggle for lockout timer
     private val _isPinLockoutEnabled = MutableStateFlow(pinManager.isLockoutEnabled())
     val isPinLockoutEnabled = _isPinLockoutEnabled.asStateFlow()
+
+    // SELF-DESTRUCT STATE
+    private val _isSelfDestructSet = MutableStateFlow(pinManager.isSelfDestructPinSet())
+    val isSelfDestructSet = _isSelfDestructSet.asStateFlow()
 
     init {
         val remaining = pinManager.getRemainingLockoutTime()
@@ -129,7 +138,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         pinManager.setLockoutEnabled(newState)
         _isPinLockoutEnabled.value = newState
 
-        // If the user turned it off, clear any active timer from the UI state instantly
         if (!newState) {
             _lockoutTimeRemaining.value = 0L
             if (_errorMessage.value?.contains("attempts left") == true || _errorMessage.value?.contains("Too many attempts") == true) {
@@ -163,7 +171,37 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setSelfDestructPin(newPin: String): Boolean {
+        if (pinManager.verifyMainPinSilently(newPin)) {
+            _errorMessage.value = "Self-Destruct PIN cannot be the same as your main PIN."
+            return false
+        }
+        if (newPin.length >= 4) {
+            pinManager.saveSelfDestructPin(newPin)
+            _isSelfDestructSet.value = true
+            _errorMessage.value = null
+            return true
+        }
+        return false
+    }
+
+    fun removeSelfDestructPin() {
+        pinManager.clearSelfDestructPin()
+        _isSelfDestructSet.value = false
+    }
+
+    fun clearErrorMessage() {
+        _errorMessage.value = null
+    }
+
     fun checkPin(inputPin: String) {
+        // Intercept for Self-Destruct
+        if (pinManager.isSelfDestructPinSet() && pinManager.checkSelfDestructPin(inputPin)) {
+            executeSelfDestruct()
+            return
+        }
+
+        // Standard Auth Flow
         val remainingTime = pinManager.getRemainingLockoutTime()
         if (remainingTime > 0) {
             startLockoutTimer()
@@ -184,7 +222,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     val attemptsLeft = 5 - pinManager.getFailedAttempts()
                     _errorMessage.value = "Incorrect PIN. $attemptsLeft attempts left."
                 } else {
-                    _errorMessage.value = "Incorrect PIN." // Hide attempts counter if lockout is disabled
+                    _errorMessage.value = "Incorrect PIN."
                 }
             }
         }
@@ -194,7 +232,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return pinManager.checkPin(inputPin)
     }
 
-    // --- BIOMETRIC SECURITY ---
+    private fun executeSelfDestruct() {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.clearAllTables()
+            pinManager.wipeAllSecureData()
+            prefs.edit().clear().apply()
+
+            launch(Dispatchers.Main) {
+                _isPinSet.value = false
+                _isSelfDestructSet.value = false
+                _isAuthenticated.value = false
+                _isBiometricEnabled.value = false
+                _isClipboardClearEnabled.value = false
+                _isPinScrambleEnabled.value = false  // Reset scramble toggle
+                _isAutoSaveEnabled.value = true
+                _isDarkTheme.value = false
+                _autoLockTimeout.value = 0L
+                _isPinLockoutEnabled.value = true
+                _errorMessage.value = "Device data wiped for security."
+            }
+        }
+    }
+
+    // BIOMETRIC SECURITY
     private val _isBiometricEnabled = MutableStateFlow(prefs.getBoolean("biometric_enabled", false))
     val isBiometricEnabled = _isBiometricEnabled.asStateFlow()
 
@@ -219,7 +279,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     _isAuthenticated.value = true
                     _errorMessage.value = null
                     _lockoutTimeRemaining.value = 0L
-                    pinManager.resetFailures() // Using Biometrics completely wipes the PIN penalty
+                    pinManager.resetFailures()
                 }
 
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
@@ -241,7 +301,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         biometricPrompt.authenticate(promptInfo)
     }
 
-    // --- NOTE LOGIC ---
+    // NOTE LOGIC
     private val database = NoteDatabase.getDatabase(application)
     private val noteDao = database.noteDao()
 
@@ -295,7 +355,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // --- ENCRYPTED IMPORT / EXPORT LOGIC ---
+    // ENCRYPTED IMPORT / EXPORT LOGIC
     private val gson = Gson()
     private val SALT_SIZE = 16
     private val IV_SIZE = 12
@@ -322,8 +382,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     output.write(encryptedBytes)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
-                _errorMessage.value = "Export Failed: ${e.message}"
+                _errorMessage.value = "Export Failed: An error occurred during encryption."
             }
         }
     }
@@ -355,7 +414,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 _errorMessage.value = "Import Successful"
             } catch (e: Exception) {
-                e.printStackTrace()
                 _errorMessage.value = "Import Failed: Incorrect Password or Corrupt File"
             }
         }

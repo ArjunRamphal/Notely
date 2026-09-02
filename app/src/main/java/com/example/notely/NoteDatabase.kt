@@ -114,7 +114,6 @@ abstract class NoteDatabase : RoomDatabase() {
                 try {
                     decryptKey(encryptedBlob)
                 } catch (e: Exception) {
-                    e.printStackTrace()
                     // If decryption fails (e.g. key invalidated), we must recreate.
                     generateAndSaveNewKey(prefs)
                 }
