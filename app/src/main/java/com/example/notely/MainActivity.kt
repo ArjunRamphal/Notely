@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.activity.enableEdgeToEdge
@@ -357,15 +358,26 @@ fun NoteCard(
                 buildAnnotatedString {
                     append(note.content)
                     spans.forEach { span ->
-                        if (span.end <= note.content.length) {
-                            addStyle(
-                                style = SpanStyle(
-                                    fontWeight = if (span.isBold) FontWeight.Bold else null,
-                                    fontStyle = if (span.isItalic) FontStyle.Italic else null
-                                ),
-                                start = span.start,
-                                end = span.end
-                            )
+                        // Safely clip bounds to the string length to prevent out-of-bounds dropping
+                        val safeStart = span.start.coerceIn(0, note.content.length)
+                        val safeEnd = span.end.coerceIn(0, note.content.length)
+
+                        if (safeStart < safeEnd) {
+                            // Apply independently so they gracefully merge rather than override
+                            if (span.isBold) {
+                                addStyle(
+                                    style = SpanStyle(fontWeight = FontWeight.Bold),
+                                    start = safeStart,
+                                    end = safeEnd
+                                )
+                            }
+                            if (span.isItalic) {
+                                addStyle(
+                                    style = SpanStyle(fontStyle = FontStyle.Italic),
+                                    start = safeStart,
+                                    end = safeEnd
+                                )
+                            }
                         }
                     }
                 }
