@@ -360,8 +360,8 @@ fun NoteCard(
                         if (span.end <= note.content.length) {
                             addStyle(
                                 style = SpanStyle(
-                                    fontWeight = if (span.isBold) FontWeight.Bold else FontWeight.Normal,
-                                    fontStyle = if (span.isItalic) FontStyle.Italic else FontStyle.Normal
+                                    fontWeight = if (span.isBold) FontWeight.Bold else null,
+                                    fontStyle = if (span.isItalic) FontStyle.Italic else null
                                 ),
                                 start = span.start,
                                 end = span.end
