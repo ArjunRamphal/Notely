@@ -15,7 +15,6 @@ import javax.crypto.spec.PBEKeySpec
 
 class PinManager(context: Context) {
 
-    // Standard SharedPreferences (We will only store ENCRYPTED blobs here)
     private val sharedPreferences = context.getSharedPreferences("notely_secure_prefs", Context.MODE_PRIVATE)
 
     private val KEY_ALIAS = "notely_pin_key"
@@ -27,70 +26,53 @@ class PinManager(context: Context) {
     private val SALT_LENGTH = 16
 
     private val MAX_ATTEMPTS = 5
-    // Base lockout is 30 minutes (30 * 60 * 1000)
     private val BASE_LOCKOUT_DURATION_MS = 1_800_000L
 
     init {
         createKeyStoreKey()
     }
 
-    /**
-     * 1. Generate Salt.
-     * 2. Slow Hash the PIN.
-     * 3. Concatenate Salt + Hash.
-     * 4. Encrypt the combined string using Android Keystore.
-     * 5. Save the encrypted blob to SharedPreferences.
-     */
+    // --- MAIN PIN LOGIC ---
+
     fun savePin(pin: String) {
         val salt = generateSalt()
         val hash = hashPin(pin, salt)
-
-        // Combine them so we store everything in one encrypted package
         val dataToStore = "$salt:$hash"
-
         val encryptedData = encryptData(dataToStore)
 
         sharedPreferences.edit()
             .putString("ENCRYPTED_PIN_DATA", encryptedData)
             .putInt("FAILED_ATTEMPTS", 0)
             .putLong("LOCKOUT_TIMESTAMP", 0)
-            .putInt("LOCKOUT_MULTIPLIER", 1) // Reset multiplier
+            .putInt("LOCKOUT_MULTIPLIER", 1)
             .apply()
     }
 
-    /**
-     * 1. Retrieve encrypted blob.
-     * 2. Decrypt it using Android Keystore.
-     * 3. Split into Salt and Hash.
-     * 4. Re-hash input and compare.
-     */
     fun checkPin(inputPin: String): Boolean {
         if (isLockedOut()) return false
 
-        val encryptedData = sharedPreferences.getString("ENCRYPTED_PIN_DATA", null) ?: return false
+        if (verifyMainPinSilently(inputPin)) {
+            resetFailures()
+            return true
+        } else {
+            incrementFailures()
+            return false
+        }
+    }
 
-        try {
+    fun verifyMainPinSilently(inputPin: String): Boolean {
+        val encryptedData = sharedPreferences.getString("ENCRYPTED_PIN_DATA", null) ?: return false
+        return try {
             val decryptedString = decryptData(encryptedData)
             val parts = decryptedString.split(":")
-
             if (parts.size != 2) return false
-
             val storedSalt = parts[0]
             val storedHash = parts[1]
-
             val inputHash = hashPin(inputPin, storedSalt)
-
-            if (inputHash == storedHash) {
-                resetFailures()
-                return true
-            } else {
-                incrementFailures()
-                return false
-            }
+            inputHash == storedHash
         } catch (e: Exception) {
             e.printStackTrace()
-            // If decryption fails (e.g., biometrics changed, key invalidated), fail safely
-            return false
+            false
         }
     }
 
@@ -98,17 +80,56 @@ class PinManager(context: Context) {
         return sharedPreferences.contains("ENCRYPTED_PIN_DATA")
     }
 
+    // --- SELF-DESTRUCT PIN LOGIC ---
+
+    fun saveSelfDestructPin(pin: String) {
+        val salt = generateSalt()
+        val hash = hashPin(pin, salt)
+        val dataToStore = "$salt:$hash"
+        val encryptedData = encryptData(dataToStore)
+
+        sharedPreferences.edit()
+            .putString("ENCRYPTED_SD_PIN_DATA", encryptedData)
+            .apply()
+    }
+
+    fun checkSelfDestructPin(inputPin: String): Boolean {
+        val encryptedData = sharedPreferences.getString("ENCRYPTED_SD_PIN_DATA", null) ?: return false
+        return try {
+            val decryptedString = decryptData(encryptedData)
+            val parts = decryptedString.split(":")
+            if (parts.size != 2) return false
+            val storedSalt = parts[0]
+            val storedHash = parts[1]
+            val inputHash = hashPin(inputPin, storedSalt)
+            inputHash == storedHash
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    fun isSelfDestructPinSet(): Boolean {
+        return sharedPreferences.contains("ENCRYPTED_SD_PIN_DATA")
+    }
+
+    fun clearSelfDestructPin() {
+        sharedPreferences.edit().remove("ENCRYPTED_SD_PIN_DATA").apply()
+    }
+
     // --- SETTINGS LOGIC ---
+
     fun isLockoutEnabled(): Boolean {
         return sharedPreferences.getBoolean("LOCKOUT_ENABLED", true)
     }
 
     fun setLockoutEnabled(enabled: Boolean) {
         sharedPreferences.edit().putBoolean("LOCKOUT_ENABLED", enabled).apply()
-        // If the user turns off the lockout timer, completely clear any active penalties
-        if (!enabled) {
-            resetFailures()
-        }
+        if (!enabled) resetFailures()
+    }
+
+    fun wipeAllSecureData() {
+        sharedPreferences.edit().clear().apply()
     }
 
     // --- ENCRYPTION LOGIC (Hardware Backed) ---
@@ -144,8 +165,6 @@ class PinManager(context: Context) {
 
         val iv = cipher.iv
         val encryption = cipher.doFinal(data.toByteArray(Charsets.UTF_8))
-
-        // Combine IV and CipherText
         val combined = ByteArray(iv.size + encryption.size)
         System.arraycopy(iv, 0, combined, 0, iv.size)
         System.arraycopy(encryption, 0, combined, iv.size, encryption.size)
@@ -155,8 +174,6 @@ class PinManager(context: Context) {
 
     private fun decryptData(base64Data: String): String {
         val combined = Base64.decode(base64Data, Base64.NO_WRAP)
-
-        // GCM IV is standard 12 bytes
         val iv = ByteArray(12)
         val encryptedData = ByteArray(combined.size - 12)
 
@@ -164,7 +181,7 @@ class PinManager(context: Context) {
         System.arraycopy(combined, 12, encryptedData, 0, encryptedData.size)
 
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        val spec = GCMParameterSpec(128, iv) // 128 bit authentication tag length
+        val spec = GCMParameterSpec(128, iv)
         cipher.init(Cipher.DECRYPT_MODE, getSecretKey(), spec)
 
         val decoded = cipher.doFinal(encryptedData)
@@ -190,8 +207,8 @@ class PinManager(context: Context) {
             val duration = BASE_LOCKOUT_DURATION_MS * multiplier
 
             editor.putLong("LOCKOUT_TIMESTAMP", System.currentTimeMillis() + duration)
-            editor.putInt("LOCKOUT_MULTIPLIER", multiplier * 2) // Double it for the next lockout
-            editor.putInt("FAILED_ATTEMPTS", 0) // Reset so they get 5 fresh attempts AFTER the lockout expires
+            editor.putInt("LOCKOUT_MULTIPLIER", multiplier * 2)
+            editor.putInt("FAILED_ATTEMPTS", 0)
         } else {
             editor.putInt("FAILED_ATTEMPTS", failures)
         }
@@ -202,7 +219,7 @@ class PinManager(context: Context) {
         sharedPreferences.edit()
             .putInt("FAILED_ATTEMPTS", 0)
             .putLong("LOCKOUT_TIMESTAMP", 0)
-            .putInt("LOCKOUT_MULTIPLIER", 1) // Completely resets the punishment bracket
+            .putInt("LOCKOUT_MULTIPLIER", 1)
             .apply()
     }
 
@@ -216,7 +233,7 @@ class PinManager(context: Context) {
 
         val lockoutTime = sharedPreferences.getLong("LOCKOUT_TIMESTAMP", 0)
         val now = System.currentTimeMillis()
-        return if (now < lockoutTime) (lockoutTime - now) / 1000 else 0 // returns seconds remaining
+        return if (now < lockoutTime) (lockoutTime - now) / 1000 else 0
     }
 
     private fun generateSalt(): String {
