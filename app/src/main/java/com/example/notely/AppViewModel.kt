@@ -308,28 +308,42 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val allNotes = noteDao.getAllNotes()
 
     suspend fun saveNoteSynchronous(
-        existingId: Int?,
+        existingNote: Note?,
         title: String,
         content: String,
         fontName: String,
         tags: String,
         styleMetadata: String
-    ): Int {
+    ): Note {
+        if (existingNote != null &&
+            existingNote.title == title &&
+            existingNote.content == content &&
+            existingNote.fontName == fontName &&
+            existingNote.tags == tags &&
+            existingNote.styleMetadata == styleMetadata
+        ) {
+            return existingNote
+        }
+
         val note = Note(
-            id = existingId ?: 0,
+            id = existingNote?.id ?: 0,
             title = title,
             content = content,
             fontName = fontName,
             tags = tags,
             styleMetadata = styleMetadata,
-            timestamp = System.currentTimeMillis()
+            timestamp = System.currentTimeMillis(),
+            isFavorite = existingNote?.isFavorite ?: false
         )
-        return if (existingId == null || existingId == 0) {
+
+        val newId = if (existingNote == null || existingNote.id == 0) {
             noteDao.insert(note).toInt()
         } else {
             noteDao.update(note)
-            existingId
+            existingNote.id
         }
+
+        return note.copy(id = newId)
     }
 
     fun addNote(title: String, content: String, fontName: String, tags: String, styleMetadata: String) {

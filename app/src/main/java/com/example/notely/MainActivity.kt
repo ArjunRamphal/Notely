@@ -144,21 +144,16 @@ fun AppNavigation(viewModel: AppViewModel) {
                     onAutoSave = { title, content, fontName, tags, styleData ->
                         if (isAutoSaveEnabled && (title.isNotBlank() || content.isNotBlank() || tags.isNotBlank())) {
                             viewModel.viewModelScope.launch {
-                                val newId = viewModel.saveNoteSynchronous(
-                                    currentNote?.id, title, content, fontName, tags, styleData
+                                currentNote = viewModel.saveNoteSynchronous(
+                                    currentNote, title, content, fontName, tags, styleData
                                 )
-                                if (currentNote == null || currentNote?.id != newId) {
-                                    currentNote = Note(id = newId, title = title, content = content, fontName = fontName, tags = tags, styleMetadata = styleData)
-                                } else {
-                                    currentNote = currentNote?.copy(title = title, content = content, fontName = fontName, tags = tags, styleMetadata = styleData)
-                                }
                             }
                         }
                     },
                     onSave = { title, content, fontName, tags, styleData ->
                         if (title.isNotBlank() || content.isNotBlank() || tags.isNotBlank()) {
                             viewModel.viewModelScope.launch {
-                                viewModel.saveNoteSynchronous(currentNote?.id, title, content, fontName, tags, styleData)
+                                viewModel.saveNoteSynchronous(currentNote, title, content, fontName, tags, styleData)
                             }
                         }
                         currentScreen = AppScreen.NotesList
@@ -167,7 +162,7 @@ fun AppNavigation(viewModel: AppViewModel) {
                     onNavigateBack = { title, content, fontName, tags, styleData ->
                         if (title.isNotBlank() || content.isNotBlank() || tags.isNotBlank()) {
                             viewModel.viewModelScope.launch {
-                                viewModel.saveNoteSynchronous(currentNote?.id, title, content, fontName, tags, styleData)
+                                viewModel.saveNoteSynchronous(currentNote, title, content, fontName, tags, styleData)
                             }
                         }
                         currentScreen = AppScreen.NotesList
