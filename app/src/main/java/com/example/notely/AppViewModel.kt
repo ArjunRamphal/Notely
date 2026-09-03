@@ -3,6 +3,10 @@ package com.example.notely
 import android.app.Application
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
+import android.security.keystore.KeyProperties
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
@@ -12,13 +16,16 @@ import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.security.KeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
@@ -27,7 +34,6 @@ import javax.crypto.spec.SecretKeySpec
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
-    // --- PREFERENCES ---
     private val prefs = application.getSharedPreferences("notely_prefs", Context.MODE_PRIVATE)
 
     // THEME
@@ -50,6 +56,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putBoolean("clipboard_autoclear", newSetting).apply()
     }
 
+    // SCRAMBLE KEYPAD
+    private val _isPinScrambleEnabled = MutableStateFlow(prefs.getBoolean("pin_scramble_enabled", false))
+    val isPinScrambleEnabled = _isPinScrambleEnabled.asStateFlow()
+
+    fun togglePinScramble() {
+        val newSetting = !_isPinScrambleEnabled.value
+        _isPinScrambleEnabled.value = newSetting
+        prefs.edit().putBoolean("pin_scramble_enabled", newSetting).apply()
+    }
+
     // AUTO-SAVE NOTES
     private val _isAutoSaveEnabled = MutableStateFlow(prefs.getBoolean("auto_save_enabled", true))
     val isAutoSaveEnabled = _isAutoSaveEnabled.asStateFlow()
@@ -65,21 +81,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val autoLockTimeout = _autoLockTimeout.asStateFlow()
 
     private var lastBackgroundTimestamp: Long = 0
+    private var isBypassingAutoLock = false
 
     fun setAutoLockTimeout(timeoutMs: Long) {
         _autoLockTimeout.value = timeoutMs
         prefs.edit().putLong("auto_lock_timeout", timeoutMs).apply()
     }
 
-    fun onAppStop() {
-        lastBackgroundTimestamp = System.currentTimeMillis()
+    fun bypassAutoLock() {
+        isBypassingAutoLock = true
+    }
 
-        // SECURITY FEATURE: Wipe Clipboard on Exit if enabled
+    fun onAppStop() {
+        lastBackgroundTimestamp = SystemClock.elapsedRealtime()
+
+        if (isBypassingAutoLock) return
+
         if (_isClipboardClearEnabled.value) {
             try {
                 val clipboard = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 if (clipboard.hasPrimaryClip()) {
-                    // Overwrite with empty data to clear sensitive info
                     val clip = android.content.ClipData.newPlainText("Notely", "")
                     clipboard.setPrimaryClip(clip)
                 }
@@ -89,16 +110,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onAppStart() {
+        if (isBypassingAutoLock) {
+            isBypassingAutoLock = false
+            return
+        }
+
         if (_autoLockTimeout.value == -1L) return
         if (_isAuthenticated.value) {
-            val elapsed = System.currentTimeMillis() - lastBackgroundTimestamp
+            val elapsed = SystemClock.elapsedRealtime() - lastBackgroundTimestamp
             if (elapsed > _autoLockTimeout.value) {
                 _isAuthenticated.value = false
             }
         }
     }
 
-    // --- PIN LOGIC ---
+    // PIN LOGIC
     private val pinManager = PinManager(application)
     private val _isAuthenticated = MutableStateFlow(false)
     val isAuthenticated = _isAuthenticated.asStateFlow()
@@ -112,9 +138,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _lockoutTimeRemaining = MutableStateFlow(0L)
     val lockoutTimeRemaining = _lockoutTimeRemaining.asStateFlow()
 
-    // NEW: Expose settings toggle for lockout timer
     private val _isPinLockoutEnabled = MutableStateFlow(pinManager.isLockoutEnabled())
     val isPinLockoutEnabled = _isPinLockoutEnabled.asStateFlow()
+
+    private var lockoutTimerJob: Job? = null
+    // SELF-DESTRUCT STATE
+    private val _isSelfDestructSet = MutableStateFlow(pinManager.isSelfDestructPinSet())
+    val isSelfDestructSet = _isSelfDestructSet.asStateFlow()
 
     init {
         val remaining = pinManager.getRemainingLockoutTime()
@@ -128,7 +158,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         pinManager.setLockoutEnabled(newState)
         _isPinLockoutEnabled.value = newState
 
-        // If the user turned it off, clear any active timer from the UI state instantly
         if (!newState) {
             _lockoutTimeRemaining.value = 0L
             if (_errorMessage.value?.contains("attempts left") == true || _errorMessage.value?.contains("Too many attempts") == true) {
@@ -138,16 +167,27 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun startLockoutTimer() {
-        viewModelScope.launch {
+        lockoutTimerJob?.cancel()
+        lockoutTimerJob = viewModelScope.launch {
+            val initialRemaining = pinManager.getRemainingLockoutTime()
+            if (initialRemaining <= 0) {
+                _lockoutTimeRemaining.value = 0
+                _errorMessage.value = null
+                return@launch
+            }
+
+            val targetEndTimeMs = System.currentTimeMillis() + (initialRemaining * 1000)
+
             while (true) {
-                val remaining = pinManager.getRemainingLockoutTime()
-                _lockoutTimeRemaining.value = remaining
-                if (remaining <= 0) {
-                    _errorMessage.value = null
+                val currentRemainingMs = targetEndTimeMs - System.currentTimeMillis()
+                if (currentRemainingMs <= 0) {
                     break
                 }
+                _lockoutTimeRemaining.value = currentRemainingMs / 1000
                 delay(1000)
             }
+            _lockoutTimeRemaining.value = 0
+            _errorMessage.value = null
         }
     }
 
@@ -162,7 +202,35 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setSelfDestructPin(newPin: String): Boolean {
+        if (pinManager.verifyMainPinSilently(newPin)) {
+            _errorMessage.value = "Self-Destruct PIN cannot be the same as your main PIN."
+            return false
+        }
+        if (newPin.length >= 4) {
+            pinManager.saveSelfDestructPin(newPin)
+            _isSelfDestructSet.value = true
+            _errorMessage.value = null
+            return true
+        }
+        return false
+    }
+
+    fun removeSelfDestructPin() {
+        pinManager.clearSelfDestructPin()
+        _isSelfDestructSet.value = false
+    }
+
+    fun clearErrorMessage() {
+        _errorMessage.value = null
+    }
+
     fun checkPin(inputPin: String) {
+        if (pinManager.isSelfDestructPinSet() && pinManager.checkSelfDestructPin(inputPin)) {
+            executeSelfDestruct()
+            return
+        }
+
         val remainingTime = pinManager.getRemainingLockoutTime()
         if (remainingTime > 0) {
             startLockoutTimer()
@@ -183,7 +251,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     val attemptsLeft = 5 - pinManager.getFailedAttempts()
                     _errorMessage.value = "Incorrect PIN. $attemptsLeft attempts left."
                 } else {
-                    _errorMessage.value = "Incorrect PIN." // Hide attempts counter if lockout is disabled
+                    _errorMessage.value = "Incorrect PIN."
                 }
             }
         }
@@ -191,6 +259,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun verifyOldPin(inputPin: String): Boolean {
         return pinManager.checkPin(inputPin)
+    }
+
+    private fun executeSelfDestruct() {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.clearAllTables()
+            pinManager.wipeAllSecureData()
+            prefs.edit().clear().apply()
+
+            launch(Dispatchers.Main) {
+                _isPinSet.value = false
+                _isSelfDestructSet.value = false
+                _isAuthenticated.value = false
+                _isBiometricEnabled.value = false
+                _isClipboardClearEnabled.value = false
+                _isPinScrambleEnabled.value = false
+                _isAutoSaveEnabled.value = true
+                _isDarkTheme.value = false
+                _autoLockTimeout.value = 0L
+                _isPinLockoutEnabled.value = true
+                _errorMessage.value = "Device data wiped for security."
+            }
+        }
     }
 
     // --- BIOMETRIC SECURITY ---
@@ -208,6 +298,45 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return biometricManager.canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS
     }
 
+    private fun getBiometricCipher(): Cipher? {
+        val keyName = "notely_biometric_key"
+        try {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore")
+            keyStore.load(null)
+
+            if (!keyStore.containsAlias(keyName)) {
+                val keyGenerator = KeyGenerator.getInstance(
+                    KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore"
+                )
+                keyGenerator.init(
+                    KeyGenParameterSpec.Builder(
+                        keyName,
+                        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                    )
+                        .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
+                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
+                        .setUserAuthenticationRequired(true)
+                        .build()
+                )
+                keyGenerator.generateKey()
+            }
+
+            val secretKey = keyStore.getKey(keyName, null) as SecretKey
+            val cipher = Cipher.getInstance(
+                "${KeyProperties.KEY_ALGORITHM_AES}/${KeyProperties.BLOCK_MODE_CBC}/${KeyProperties.ENCRYPTION_PADDING_PKCS7}"
+            )
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+            return cipher
+        } catch (e: KeyPermanentlyInvalidatedException) {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore")
+            keyStore.load(null)
+            keyStore.deleteEntry(keyName)
+            return null
+        } catch (e: Exception) {
+            return null
+        }
+    }
+
     fun showBiometricPrompt(activity: FragmentActivity) {
         val executor = ContextCompat.getMainExecutor(activity)
 
@@ -215,10 +344,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     super.onAuthenticationSucceeded(result)
-                    _isAuthenticated.value = true
-                    _errorMessage.value = null
-                    _lockoutTimeRemaining.value = 0L
-                    pinManager.resetFailures() // Using Biometrics completely wipes the PIN penalty
+                    try {
+                        // Safely verify cryptographically inside the try block
+                        result.cryptoObject!!.cipher!!.doFinal("notely_auth".toByteArray(Charsets.UTF_8))
+                        _isAuthenticated.value = true
+                        _errorMessage.value = null
+                        _lockoutTimeRemaining.value = 0L
+                        pinManager.resetFailures()
+                    } catch (e: Exception) {
+                        _errorMessage.value = "Biometric authentication failed due to cryptographic error."
+                    }
                 }
 
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
@@ -237,38 +372,58 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
             .build()
 
-        biometricPrompt.authenticate(promptInfo)
+        val cipher = getBiometricCipher()
+        if (cipher != null) {
+            biometricPrompt.authenticate(promptInfo, BiometricPrompt.CryptoObject(cipher))
+        } else {
+            // Fallback or error if cipher generation fails (e.g. key invalidated and setup needed)
+            _errorMessage.value = "Biometric Error: Cryptographic key invalid. Please re-enroll."
+        }
     }
 
-    // --- NOTE LOGIC ---
+    // NOTE LOGIC
     private val database = NoteDatabase.getDatabase(application)
     private val noteDao = database.noteDao()
 
     val allNotes = noteDao.getAllNotes()
 
     suspend fun saveNoteSynchronous(
-        existingId: Int?,
+        existingNote: Note?,
         title: String,
         content: String,
         fontName: String,
         tags: String,
         styleMetadata: String
-    ): Int {
+    ): Note {
+        if (existingNote != null &&
+            existingNote.title == title &&
+            existingNote.content == content &&
+            existingNote.fontName == fontName &&
+            existingNote.tags == tags &&
+            existingNote.styleMetadata == styleMetadata
+        ) {
+            return existingNote
+        }
+
         val note = Note(
-            id = existingId ?: 0,
+            id = existingNote?.id ?: 0,
             title = title,
             content = content,
             fontName = fontName,
             tags = tags,
             styleMetadata = styleMetadata,
-            timestamp = System.currentTimeMillis()
+            timestamp = System.currentTimeMillis(),
+            isFavorite = existingNote?.isFavorite ?: false
         )
-        return if (existingId == null || existingId == 0) {
+
+        val newId = if (existingNote == null || existingNote.id == 0) {
             noteDao.insert(note).toInt()
         } else {
             noteDao.update(note)
-            existingId
+            existingNote.id
         }
+
+        return note.copy(id = newId)
     }
 
     fun addNote(title: String, content: String, fontName: String, tags: String, styleMetadata: String) {
@@ -294,7 +449,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // --- ENCRYPTED IMPORT / EXPORT LOGIC ---
+    // ENCRYPTED IMPORT / EXPORT LOGIC
     private val gson = Gson()
     private val SALT_SIZE = 16
     private val IV_SIZE = 12
@@ -346,9 +501,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     val type = object : TypeToken<List<Note>>() {}.type
                     val importedNotes: List<Note> = gson.fromJson(jsonString, type)
 
-                    importedNotes.forEach { note ->
-                        noteDao.insert(note.copy(id = 0))
+                    val notesToInsert = importedNotes.map { note ->
+                        note.copy(id = 0)
                     }
+                    noteDao.insertAll(notesToInsert)
                 }
                 _errorMessage.value = "Import Successful"
             } catch (e: Exception) {

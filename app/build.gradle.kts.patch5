@@ -1,0 +1,10 @@
+--- app/build.gradle.kts
++++ app/build.gradle.kts
+@@ -31,6 +31,7 @@
+
+     testOptions {
+         unitTests.isIncludeAndroidResources = true
++        unitTests.isReturnDefaultValues = true
+     }
+     buildFeatures {
+         compose = true
