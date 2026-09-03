@@ -7,3 +7,8 @@
 **Learning:** This exposes detailed cryptographic failures (like `AEADBadTagException` or file path `Permission denied`) to the system logs and the end-user, revealing implementation details and system state.
 **Prevention:** Always use generic error messages for end-users when cryptographic operations fail (e.g., "An error occurred during encryption"), and avoid blindly printing stack traces for sensitive operations to standard output or Logcat.
 \n## 2025-02-09 - Lockout Bypass via Device Time Manipulation\n**Vulnerability:** The PIN lockout duration was calculated using `System.currentTimeMillis()`, which can be manipulated by changing the device's system time, allowing a user to bypass the lockout period.\n**Learning:** Security-critical timeouts and durations should never rely on user-configurable time sources.\n**Prevention:** Use `SystemClock.elapsedRealtime()` for measuring elapsed time and timeouts in Android, as it is guaranteed to be monotonic and cannot be altered by the user.
+
+## 2025-02-09 - Biometric Key Invalidation Crash
+**Vulnerability:** Keystore keys generated with `setUserAuthenticationRequired(true)` are permanently invalidated by Android if the user changes or removes their enrolled biometrics, causing unhandled `KeyPermanentlyInvalidatedException` on subsequent cipher initializations and locking the user out.
+**Learning:** Keys tied to biometric authentication have a volatile lifecycle.
+**Prevention:** Always catch `KeyPermanentlyInvalidatedException` when initializing a `Cipher` for biometric keys, delete the invalidated key alias from the Keystore, and optionally re-generate a new key before proceeding.
