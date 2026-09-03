@@ -4,6 +4,9 @@ import android.app.Application
 import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
+import android.security.keystore.KeyProperties
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
@@ -13,15 +16,12 @@ import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
-import android.security.keystore.KeyPermanentlyInvalidatedException
 import java.security.KeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
@@ -81,14 +81,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val autoLockTimeout = _autoLockTimeout.asStateFlow()
 
     private var lastBackgroundTimestamp: Long = 0
-    private var isBypassingAutoLock = false // NEW: Flag to suspend auto-lock for intents
+    private var isBypassingAutoLock = false
 
     fun setAutoLockTimeout(timeoutMs: Long) {
         _autoLockTimeout.value = timeoutMs
         prefs.edit().putLong("auto_lock_timeout", timeoutMs).apply()
     }
 
-    // Tells the lifecycle system that our next background event is intentional (e.g. system file picker)
     fun bypassAutoLock() {
         isBypassingAutoLock = true
     }
@@ -96,7 +95,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun onAppStop() {
         lastBackgroundTimestamp = SystemClock.elapsedRealtime()
 
-        if (isBypassingAutoLock) return // Skip clipboard wipe if we are just opening the file picker
+        if (isBypassingAutoLock) return
 
         if (_isClipboardClearEnabled.value) {
             try {
@@ -112,7 +111,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onAppStart() {
         if (isBypassingAutoLock) {
-            isBypassingAutoLock = false // Reset the flag and skip the lock check
+            isBypassingAutoLock = false
             return
         }
 
@@ -227,13 +226,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun checkPin(inputPin: String) {
-        // Intercept for Self-Destruct
         if (pinManager.isSelfDestructPinSet() && pinManager.checkSelfDestructPin(inputPin)) {
             executeSelfDestruct()
             return
         }
 
-        // Standard Auth Flow
         val remainingTime = pinManager.getRemainingLockoutTime()
         if (remainingTime > 0) {
             startLockoutTimer()
@@ -286,7 +283,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // BIOMETRIC SECURITY
+    // --- BIOMETRIC SECURITY ---
     private val _isBiometricEnabled = MutableStateFlow(prefs.getBoolean("biometric_enabled", false))
     val isBiometricEnabled = _isBiometricEnabled.asStateFlow()
 
@@ -301,34 +298,42 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return biometricManager.canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS
     }
 
-    private fun getBiometricCipher(): Cipher {
-        val keyStore = KeyStore.getInstance("AndroidKeyStore")
-        keyStore.load(null)
-
-        val keyAlias = "notely_biometric_key"
-        if (!keyStore.containsAlias(keyAlias)) {
-            val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
-            val keyGenParameterSpec = KeyGenParameterSpec.Builder(
-                keyAlias,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-            )
-                .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
-                .setUserAuthenticationRequired(true)
-                .build()
-
-            keyGenerator.init(keyGenParameterSpec)
-            keyGenerator.generateKey()
-        }
-
-        val secretKey = keyStore.getKey(keyAlias, null) as SecretKey
-        val cipher = Cipher.getInstance("${KeyProperties.KEY_ALGORITHM_AES}/${KeyProperties.BLOCK_MODE_CBC}/${KeyProperties.ENCRYPTION_PADDING_PKCS7}")
+    private fun getBiometricCipher(): Cipher? {
+        val keyName = "notely_biometric_key"
         try {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore")
+            keyStore.load(null)
+
+            if (!keyStore.containsAlias(keyName)) {
+                val keyGenerator = KeyGenerator.getInstance(
+                    KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore"
+                )
+                keyGenerator.init(
+                    KeyGenParameterSpec.Builder(
+                        keyName,
+                        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                    )
+                        .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
+                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
+                        .setUserAuthenticationRequired(true)
+                        .build()
+                )
+                keyGenerator.generateKey()
+            }
+
+            val secretKey = keyStore.getKey(keyName, null) as SecretKey
+            val cipher = Cipher.getInstance(
+                "${KeyProperties.KEY_ALGORITHM_AES}/${KeyProperties.BLOCK_MODE_CBC}/${KeyProperties.ENCRYPTION_PADDING_PKCS7}"
+            )
             cipher.init(Cipher.ENCRYPT_MODE, secretKey)
             return cipher
         } catch (e: KeyPermanentlyInvalidatedException) {
-            keyStore.deleteEntry(keyAlias)
-            return getBiometricCipher() // Re-generate key and try again
+            val keyStore = KeyStore.getInstance("AndroidKeyStore")
+            keyStore.load(null)
+            keyStore.deleteEntry(keyName)
+            return null
+        } catch (e: Exception) {
+            return null
         }
     }
 
@@ -340,6 +345,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     super.onAuthenticationSucceeded(result)
                     try {
+                        // Safely verify cryptographically inside the try block
                         result.cryptoObject!!.cipher!!.doFinal("notely_auth".toByteArray(Charsets.UTF_8))
                         _isAuthenticated.value = true
                         _errorMessage.value = null
@@ -366,10 +372,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
             .build()
 
-        try {
-            biometricPrompt.authenticate(promptInfo, BiometricPrompt.CryptoObject(getBiometricCipher()))
-        } catch (e: Exception) {
-            _errorMessage.value = "Could not initialize biometric prompt."
+        val cipher = getBiometricCipher()
+        if (cipher != null) {
+            biometricPrompt.authenticate(promptInfo, BiometricPrompt.CryptoObject(cipher))
+        } else {
+            // Fallback or error if cipher generation fails (e.g. key invalidated and setup needed)
+            _errorMessage.value = "Biometric Error: Cryptographic key invalid. Please re-enroll."
         }
     }
 
