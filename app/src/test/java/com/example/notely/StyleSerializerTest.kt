@@ -75,20 +75,47 @@ class StyleSerializerTest {
 
     @Test
     fun serialize_emptyList_returnsEmptyString() {
-        assertEquals("", StyleSerializer.serialize(emptyList()))
+        val spans = emptyList<StyleSpan>()
+        val result = StyleSerializer.serialize(spans)
+        assertEquals("", result)
     }
 
     @Test
-    fun serialize_validSpans_returnsString() {
-        val spans = listOf(
-            StyleSpan(0, 5, isBold = true, isItalic = false),
-            StyleSpan(6, 10, isBold = false, isItalic = true),
-            StyleSpan(11, 15, isBold = true, isItalic = true),
-            StyleSpan(16, 20, isBold = false, isItalic = false)
-        )
-
+    fun serialize_singleSpanNoStyles_returnsBasicFormat() {
+        val spans = listOf(StyleSpan(start = 0, end = 5, isBold = false, isItalic = false))
         val result = StyleSerializer.serialize(spans)
+        assertEquals("0:5:", result)
+    }
 
-        assertEquals("0:5:B,6:10:I,11:15:BI,16:20:", result)
+    @Test
+    fun serialize_singleSpanBold_returnsBoldFormat() {
+        val spans = listOf(StyleSpan(start = 2, end = 8, isBold = true, isItalic = false))
+        val result = StyleSerializer.serialize(spans)
+        assertEquals("2:8:B", result)
+    }
+
+    @Test
+    fun serialize_singleSpanItalic_returnsItalicFormat() {
+        val spans = listOf(StyleSpan(start = 10, end = 15, isBold = false, isItalic = true))
+        val result = StyleSerializer.serialize(spans)
+        assertEquals("10:15:I", result)
+    }
+
+    @Test
+    fun serialize_singleSpanBoldAndItalic_returnsCombinedFormat() {
+        val spans = listOf(StyleSpan(start = 5, end = 12, isBold = true, isItalic = true))
+        val result = StyleSerializer.serialize(spans)
+        assertEquals("5:12:BI", result)
+    }
+
+    @Test
+    fun serialize_multipleSpans_returnsCommaSeparatedString() {
+        val spans = listOf(
+            StyleSpan(start = 0, end = 4, isBold = true, isItalic = false),
+            StyleSpan(start = 5, end = 9, isBold = false, isItalic = true),
+            StyleSpan(start = 10, end = 15, isBold = true, isItalic = true)
+        )
+        val result = StyleSerializer.serialize(spans)
+        assertEquals("0:4:B,5:9:I,10:15:BI", result)
     }
 }
