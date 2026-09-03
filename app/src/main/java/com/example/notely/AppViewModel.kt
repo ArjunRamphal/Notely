@@ -468,9 +468,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     val type = object : TypeToken<List<Note>>() {}.type
                     val importedNotes: List<Note> = gson.fromJson(jsonString, type)
 
-                    importedNotes.forEach { note ->
-                        noteDao.insert(note.copy(id = 0))
+                    val notesToInsert = importedNotes.map { note ->
+                        note.copy(id = 0)
                     }
+                    noteDao.insertAll(notesToInsert)
                 }
                 _errorMessage.value = "Import Successful"
             } catch (e: Exception) {
