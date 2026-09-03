@@ -1,0 +1,27 @@
+--- app/src/main/java/com/example/notely/AppViewModel.kt
++++ app/src/main/java/com/example/notely/AppViewModel.kt
+@@ -19,6 +19,7 @@
+ import kotlinx.coroutines.flow.first
+ import kotlinx.coroutines.launch
+ import android.security.keystore.KeyGenParameterSpec
++import android.security.keystore.KeyPermanentlyInvalidatedException
+ import android.security.keystore.KeyProperties
+ import java.security.KeyStore
+ import java.security.SecureRandom
+@@ -298,8 +299,19 @@
+
+         val secretKey = keyStore.getKey(keyAlias, null) as SecretKey
+         val cipher = Cipher.getInstance("${KeyProperties.KEY_ALGORITHM_AES}/${KeyProperties.BLOCK_MODE_CBC}/${KeyProperties.ENCRYPTION_PADDING_PKCS7}")
+-        cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+-        return cipher
++        try {
++            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
++            return cipher
++        } catch (e: KeyPermanentlyInvalidatedException) {
++            keyStore.deleteEntry(keyAlias)
++            // Try again after deleting the invalidated key
++            return getBiometricCipher()
++        }
+     }
+
+     fun showBiometricPrompt(activity: FragmentActivity) {

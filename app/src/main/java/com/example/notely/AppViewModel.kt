@@ -18,8 +18,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.security.keystore.KeyPermanentlyInvalidatedException
+import java.security.KeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
@@ -270,6 +275,37 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return biometricManager.canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS
     }
 
+    private fun getBiometricCipher(): Cipher {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+
+        val keyAlias = "notely_biometric_key"
+        if (!keyStore.containsAlias(keyAlias)) {
+            val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+            val keyGenParameterSpec = KeyGenParameterSpec.Builder(
+                keyAlias,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
+                .setUserAuthenticationRequired(true)
+                .build()
+
+            keyGenerator.init(keyGenParameterSpec)
+            keyGenerator.generateKey()
+        }
+
+        val secretKey = keyStore.getKey(keyAlias, null) as SecretKey
+        val cipher = Cipher.getInstance("${KeyProperties.KEY_ALGORITHM_AES}/${KeyProperties.BLOCK_MODE_CBC}/${KeyProperties.ENCRYPTION_PADDING_PKCS7}")
+        try {
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+            return cipher
+        } catch (e: KeyPermanentlyInvalidatedException) {
+            keyStore.deleteEntry(keyAlias)
+            return getBiometricCipher() // Re-generate key and try again
+        }
+    }
+
     fun showBiometricPrompt(activity: FragmentActivity) {
         val executor = ContextCompat.getMainExecutor(activity)
 
@@ -277,10 +313,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     super.onAuthenticationSucceeded(result)
-                    _isAuthenticated.value = true
-                    _errorMessage.value = null
-                    _lockoutTimeRemaining.value = 0L
-                    pinManager.resetFailures()
+                    try {
+                        // Enforce cryptographic verification to prevent lockout bypass
+                        result.cryptoObject!!.cipher!!.doFinal("notely_auth".toByteArray(Charsets.UTF_8))
+                        _isAuthenticated.value = true
+                        _errorMessage.value = null
+                        _lockoutTimeRemaining.value = 0L
+                        pinManager.resetFailures()
+                    } catch (e: Exception) {
+                        _errorMessage.value = "Biometric authentication failed due to cryptographic error."
+                    }
                 }
 
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
@@ -299,7 +341,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
             .build()
 
-        biometricPrompt.authenticate(promptInfo)
+        try {
+            biometricPrompt.authenticate(promptInfo, BiometricPrompt.CryptoObject(getBiometricCipher()))
+        } catch (e: Exception) {
+            _errorMessage.value = "Could not initialize biometric prompt."
+        }
     }
 
     // NOTE LOGIC
