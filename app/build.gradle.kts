@@ -35,10 +35,12 @@ android {
     buildFeatures {
         compose = true
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
-    // --- EXISTING DEPENDENCIES ---
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -48,32 +50,22 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
-
-    // --- NEW DEPENDENCIES FOR NOTELY ---
-
-    // 1. Navigation (Moving between PIN screen and Notes)
     implementation(libs.androidx.navigation.compose)
-
-    // 2. Room Database (Local Storage)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
-    implementation(libs.androidx.biometric.ktx)
+    implementation(libs.androidx.biometric)
     implementation(libs.androidx.fragment.ktx)
-    ksp(libs.androidx.room.compiler) // Uses KSP plugin
-
-    // 3. Security (Encrypted PIN)
-    implementation(libs.androidx.security.crypto)
-
+    ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.security.crypto)
     implementation(libs.android.database.sqlcipher)
     implementation(libs.androidx.sqlite)
-
     implementation("com.google.code.gson:gson:2.13.2")
 
-    implementation(libs.androidx.biometric)
-
-    // --- TESTING ---
     testImplementation(libs.junit)
+    testImplementation("io.mockk:mockk:1.13.8")
+    testImplementation("org.robolectric:robolectric:4.11.1")
+    testImplementation("androidx.test:core:1.5.0")
+    testImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
