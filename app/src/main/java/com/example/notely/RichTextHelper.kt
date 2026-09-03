@@ -7,7 +7,6 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 
 data class StyleSpan(
     val start: Int,
@@ -54,8 +53,8 @@ class RichTextState(
                 if (start < end) {
                     addStyle(
                         style = SpanStyle(
-                            fontWeight = if (span.isBold) FontWeight.Bold else FontWeight.Normal,
-                            fontStyle = if (span.isItalic) FontStyle.Italic else FontStyle.Normal
+                            fontWeight = if (span.isBold) FontWeight.Bold else null,
+                            fontStyle = if (span.isItalic) FontStyle.Italic else null
                         ),
                         start = start,
                         end = end
