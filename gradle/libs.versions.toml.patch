@@ -1,0 +1,18 @@
+--- gradle/libs.versions.toml
++++ gradle/libs.versions.toml
+@@ -21,6 +21,7 @@
+ biometric = "1.2.0-alpha05"
+ mockito = "5.2.0"
+ mockitoKotlin = "5.4.0"
++robolectric = "4.12"
+
+ [libraries]
+ android-database-sqlcipher = { module = "net.zetetic:android-database-sqlcipher", version.ref = "androidDatabaseSqlcipher" }
+@@ -52,6 +53,7 @@
+ androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
+ mockito-core = { group = "org.mockito", name = "mockito-core", version.ref = "mockito" }
+ mockito-kotlin = { group = "org.mockito.kotlin", name = "mockito-kotlin", version.ref = "mockitoKotlin" }
++robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+
+ [plugins]
+ android-application = { id = "com.android.application", version.ref = "agp" }

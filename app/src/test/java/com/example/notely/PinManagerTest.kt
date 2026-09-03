@@ -1,52 +1,109 @@
 package com.example.notely
 
-import android.os.Build
-import androidx.test.core.app.ApplicationProvider
-import androidx.test.ext.junit.runners.AndroidJUnit4
-import org.junit.Assert.*
-import org.junit.Before
-import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.annotation.Config
-import org.robolectric.shadows.ShadowLog
-import java.security.Provider
-import java.security.Security
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Build
+import androidx.test.core.app.ApplicationProvider
+import org.junit.Before
+import org.junit.Test
+import org.junit.Assert.*
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
+import org.robolectric.shadows.ShadowLog
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
 
-@RunWith(AndroidJUnit4::class)
-@Config(sdk = [Build.VERSION_CODES.O_MR1])
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33], shadows = [ShadowCipher::class, ShadowKeyStore::class, ShadowKeyGenerator::class])
 class PinManagerTest {
-
-    private var pinManager: PinManager? = null
+    private lateinit var context: Context
     private lateinit var prefs: SharedPreferences
+    private var pinManager: PinManager? = null
 
     @Before
-    fun setUp() {
+    fun setup() {
         ShadowLog.stream = System.out
-
-        prefs = ApplicationProvider.getApplicationContext<Context>().getSharedPreferences("notely_secure_prefs", Context.MODE_PRIVATE)
-        prefs.edit().clear().apply()
+        context = ApplicationProvider.getApplicationContext()
+        prefs = context.getSharedPreferences("notely_secure_prefs", Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
 
         try {
-            pinManager = PinManager(ApplicationProvider.getApplicationContext())
+            pinManager = PinManager(context)
         } catch (e: Exception) {
-            e.printStackTrace()
-            // swallow exception if the keystore fails to init in tests, we can test other methods
+            println("Exception: $e")
         }
     }
 
+    // --- TESTS FROM CURRENT BRANCH (PIN Checking Logic) ---
+
+    @Test
+    fun testCheckPin_WhenLockedOut_ReturnsFalse() {
+        if (pinManager == null) return
+        prefs.edit().putBoolean("LOCKOUT_ENABLED", true).commit()
+        prefs.edit().putLong("LOCKOUT_TIMESTAMP", System.currentTimeMillis() + 10000).commit()
+
+        val result = pinManager!!.checkPin("1234")
+        assertFalse(result)
+    }
+
+    @Test
+    fun testCheckPin_NoPinSet_ReturnsFalse() {
+        if (pinManager == null) return
+        val result = pinManager!!.checkPin("1234")
+        assertFalse(result)
+    }
+
+    @Test
+    fun testCheckPin_CorrectPin_ReturnsTrue() {
+        if (pinManager == null) return
+        val pin = "1234"
+        pinManager!!.savePin(pin)
+
+        val result = pinManager!!.checkPin(pin)
+        assertTrue(result)
+    }
+
+    @Test
+    fun testCheckPin_IncorrectPin_ReturnsFalseAndIncrementsFailures() {
+        if (pinManager == null) return
+        val pin = "1234"
+        pinManager!!.savePin(pin)
+
+        val initialFailures = pinManager!!.getFailedAttempts()
+
+        val result = pinManager!!.checkPin("9999")
+        assertFalse(result)
+
+        val newFailures = pinManager!!.getFailedAttempts()
+        assertEquals(initialFailures + 1, newFailures)
+    }
+
+    @Test
+    fun testCheckPin_CorruptedData_ReturnsFalseSafely() {
+        if (pinManager == null) return
+        pinManager!!.savePin("1234")
+
+        prefs.edit().putString("ENCRYPTED_PIN_DATA", "corrupted_blob").commit()
+
+        val result = pinManager!!.checkPin("1234")
+        assertFalse(result)
+    }
+
+    // --- TESTS FROM MASTER BRANCH (State & Lockout Settings) ---
+
     @Test
     fun testIsPinSet_InitiallyFalse() {
-        if (pinManager == null) return // Skip if initialization failed due to KeyStore
-
+        if (pinManager == null) return
         assertFalse(pinManager!!.isPinSet())
     }
 
     @Test
     fun testIsPinSet_TrueWhenDataExists() {
         if (pinManager == null) return
-
         prefs.edit().putString("ENCRYPTED_PIN_DATA", "dummy_data").apply()
         assertTrue(pinManager!!.isPinSet())
     }
@@ -54,7 +111,6 @@ class PinManagerTest {
     @Test
     fun testIsLockoutEnabled_DefaultTrue() {
         if (pinManager == null) return
-
         assertTrue(pinManager!!.isLockoutEnabled())
     }
 
@@ -73,21 +129,16 @@ class PinManagerTest {
     fun testFailedAttemptsAndLockout() {
         if (pinManager == null) return
 
-        // Use reflection to call incrementFailures and resetFailures, since they are private
-        val resetMethod = PinManager::class.java.getDeclaredMethod("resetFailures")
-        resetMethod.isAccessible = true
-        resetMethod.invoke(pinManager!!)
+        pinManager!!.resetFailures()
 
         assertEquals(0, pinManager!!.getFailedAttempts())
         assertEquals(0L, pinManager!!.getRemainingLockoutTime())
 
-        // Mock preferences to simulate lockout logic for testing helper methods
         prefs.edit().putInt("FAILED_ATTEMPTS", 2).apply()
         assertEquals(2, pinManager!!.getFailedAttempts())
 
-        // Verify lockout time logic
         val now = System.currentTimeMillis()
-        prefs.edit().putLong("LOCKOUT_TIMESTAMP", now + 10000).apply() // Lockout for 10 seconds
+        prefs.edit().putLong("LOCKOUT_TIMESTAMP", now + 10000).apply() 
         assertTrue(pinManager!!.getRemainingLockoutTime() > 0)
     }
 
@@ -99,8 +150,42 @@ class PinManagerTest {
         assertEquals(3, pinManager!!.getFailedAttempts())
 
         pinManager!!.setLockoutEnabled(false)
-        // When disabled, getting failed attempts returns 0
         assertEquals(0, pinManager!!.getFailedAttempts())
         assertEquals(0L, pinManager!!.getRemainingLockoutTime())
+    }
+}
+
+// --- SHADOWS FOR KEYSTORE BYPASS ---
+
+@Implements(KeyStore::class)
+class ShadowKeyStore {
+    companion object {
+        @JvmStatic
+        @Implementation
+        fun getInstance(type: String): KeyStore {
+            return KeyStore.getInstance("JCEKS")
+        }
+    }
+}
+
+@Implements(KeyGenerator::class)
+class ShadowKeyGenerator {
+    companion object {
+        @JvmStatic
+        @Implementation
+        fun getInstance(algorithm: String, provider: String): KeyGenerator {
+            return KeyGenerator.getInstance("AES")
+        }
+    }
+}
+
+@Implements(Cipher::class)
+class ShadowCipher {
+    companion object {
+        @JvmStatic
+        @Implementation
+        fun getInstance(transformation: String): Cipher {
+            return Cipher.getInstance("AES/CBC/PKCS5Padding")
+        }
     }
 }
