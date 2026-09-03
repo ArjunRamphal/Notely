@@ -80,14 +80,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val autoLockTimeout = _autoLockTimeout.asStateFlow()
 
     private var lastBackgroundTimestamp: Long = 0
+    private var isBypassingAutoLock = false // NEW: Flag to suspend auto-lock for intents
 
     fun setAutoLockTimeout(timeoutMs: Long) {
         _autoLockTimeout.value = timeoutMs
         prefs.edit().putLong("auto_lock_timeout", timeoutMs).apply()
     }
 
+    // Tells the lifecycle system that our next background event is intentional (e.g. system file picker)
+    fun bypassAutoLock() {
+        isBypassingAutoLock = true
+    }
+
     fun onAppStop() {
         lastBackgroundTimestamp = SystemClock.elapsedRealtime()
+
+        if (isBypassingAutoLock) return // Skip clipboard wipe if we are just opening the file picker
 
         if (_isClipboardClearEnabled.value) {
             try {
@@ -102,6 +110,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onAppStart() {
+        if (isBypassingAutoLock) {
+            isBypassingAutoLock = false // Reset the flag and skip the lock check
+            return
+        }
+
         if (_autoLockTimeout.value == -1L) return
         if (_isAuthenticated.value) {
             val elapsed = SystemClock.elapsedRealtime() - lastBackgroundTimestamp
@@ -250,7 +263,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _isAuthenticated.value = false
                 _isBiometricEnabled.value = false
                 _isClipboardClearEnabled.value = false
-                _isPinScrambleEnabled.value = false  // Reset scramble toggle
+                _isPinScrambleEnabled.value = false
                 _isAutoSaveEnabled.value = true
                 _isDarkTheme.value = false
                 _autoLockTimeout.value = 0L
@@ -314,7 +327,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     super.onAuthenticationSucceeded(result)
                     try {
-                        // Enforce cryptographic verification to prevent lockout bypass
                         result.cryptoObject!!.cipher!!.doFinal("notely_auth".toByteArray(Charsets.UTF_8))
                         _isAuthenticated.value = true
                         _errorMessage.value = null
