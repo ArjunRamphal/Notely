@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.activity.enableEdgeToEdge
@@ -357,15 +358,24 @@ fun NoteCard(
                 buildAnnotatedString {
                     append(note.content)
                     spans.forEach { span ->
-                        if (span.end <= note.content.length) {
-                            addStyle(
-                                style = SpanStyle(
-                                    fontWeight = if (span.isBold) FontWeight.Bold else FontWeight.Normal,
-                                    fontStyle = if (span.isItalic) FontStyle.Italic else FontStyle.Normal
-                                ),
-                                start = span.start,
-                                end = span.end
-                            )
+                        val safeStart = span.start.coerceIn(0, note.content.length)
+                        val safeEnd = span.end.coerceIn(0, note.content.length)
+
+                        if (safeStart < safeEnd) {
+                            if (span.isBold) {
+                                addStyle(
+                                    style = SpanStyle(fontWeight = FontWeight.Bold),
+                                    start = safeStart,
+                                    end = safeEnd
+                                )
+                            }
+                            if (span.isItalic) {
+                                addStyle(
+                                    style = SpanStyle(fontStyle = FontStyle.Italic),
+                                    start = safeStart,
+                                    end = safeEnd
+                                )
+                            }
                         }
                     }
                 }
@@ -661,7 +671,15 @@ fun SettingsScreen(
                         supportingContent = { Text("Restore from file") },
                         leadingContent = { Icon(Icons.Default.Download, null) },
                         modifier = Modifier
-                            .clickable { importLauncher.launch(arrayOf("*/*")) }
+                            .clickable {
+                                // NEW: Bypass auto lock so file picker doesn't lock the app
+                                try {
+                                    viewModel.bypassAutoLock()
+                                    importLauncher.launch(arrayOf("*/*"))
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Could not open file picker", Toast.LENGTH_SHORT).show()
+                                }
+                            }
                             .fillMaxWidth()
                     )
                     HorizontalDivider()
@@ -710,7 +728,13 @@ fun SettingsScreen(
                     Button(onClick = {
                         if (tempPassword.isNotEmpty()) {
                             showExportPasswordDialog = false
-                            exportLauncher.launch("notely_backup.enc")
+                            // NEW: Bypass auto lock before launching export picker
+                            try {
+                                viewModel.bypassAutoLock()
+                                exportLauncher.launch("notely_backup.enc")
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Could not open file picker", Toast.LENGTH_SHORT).show()
+                            }
                         }
                     }) { Text("Save") }
                 },
@@ -812,7 +836,7 @@ fun SetSelfDestructPinScreen(
             enabled = true,
             onDigitClick = { digit ->
                 if (pin.length < 4) {
-                    if (error != null) viewModel.clearErrorMessage() // CLEAR ERROR
+                    if (error != null) viewModel.clearErrorMessage()
                     pin += digit
                     if (pin.length == 4) {
                         if (viewModel.setSelfDestructPin(pin)) {
@@ -867,7 +891,7 @@ fun ChangePinScreen(
             enabled = true,
             onDigitClick = { digit ->
                 if (pin.length < 4) {
-                    if (error != null) error = null // CLEAR ERROR
+                    if (error != null) error = null
                     pin += digit
                     if (pin.length == 4) {
                         if (stage == ChangePinStage.VerifyOld) {
@@ -954,7 +978,7 @@ fun PinScreen(title: String, viewModel: AppViewModel, isSetup: Boolean, isScramb
             enabled = !isLockedOut,
             onDigitClick = { digit ->
                 if (!isLockedOut && pin.length < 4) {
-                    if (error != null) viewModel.clearErrorMessage() // CLEAR ERROR
+                    if (error != null) viewModel.clearErrorMessage()
                     pin += digit
                     if (pin.length == 4) {
                         if (isSetup) viewModel.setPin(pin)

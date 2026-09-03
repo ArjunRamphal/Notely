@@ -4,6 +4,9 @@ import android.app.Application
 import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
+import android.security.keystore.KeyProperties
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
@@ -13,18 +16,16 @@ import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import java.security.SecureRandom
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
 import java.security.KeyStore
-import javax.crypto.KeyGenerator
-import android.security.keystore.KeyPermanentlyInvalidatedException
+import java.security.SecureRandom
 import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
@@ -80,14 +81,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val autoLockTimeout = _autoLockTimeout.asStateFlow()
 
     private var lastBackgroundTimestamp: Long = 0
+    private var isBypassingAutoLock = false
 
     fun setAutoLockTimeout(timeoutMs: Long) {
         _autoLockTimeout.value = timeoutMs
         prefs.edit().putLong("auto_lock_timeout", timeoutMs).apply()
     }
 
+    fun bypassAutoLock() {
+        isBypassingAutoLock = true
+    }
+
     fun onAppStop() {
         lastBackgroundTimestamp = SystemClock.elapsedRealtime()
+
+        if (isBypassingAutoLock) return
 
         if (_isClipboardClearEnabled.value) {
             try {
@@ -102,6 +110,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onAppStart() {
+        if (isBypassingAutoLock) {
+            isBypassingAutoLock = false
+            return
+        }
+
         if (_autoLockTimeout.value == -1L) return
         if (_isAuthenticated.value) {
             val elapsed = SystemClock.elapsedRealtime() - lastBackgroundTimestamp
@@ -128,6 +141,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _isPinLockoutEnabled = MutableStateFlow(pinManager.isLockoutEnabled())
     val isPinLockoutEnabled = _isPinLockoutEnabled.asStateFlow()
 
+    private var lockoutTimerJob: Job? = null
     // SELF-DESTRUCT STATE
     private val _isSelfDestructSet = MutableStateFlow(pinManager.isSelfDestructPinSet())
     val isSelfDestructSet = _isSelfDestructSet.asStateFlow()
@@ -153,16 +167,27 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun startLockoutTimer() {
-        viewModelScope.launch {
+        lockoutTimerJob?.cancel()
+        lockoutTimerJob = viewModelScope.launch {
+            val initialRemaining = pinManager.getRemainingLockoutTime()
+            if (initialRemaining <= 0) {
+                _lockoutTimeRemaining.value = 0
+                _errorMessage.value = null
+                return@launch
+            }
+
+            val targetEndTimeMs = System.currentTimeMillis() + (initialRemaining * 1000)
+
             while (true) {
-                val remaining = pinManager.getRemainingLockoutTime()
-                _lockoutTimeRemaining.value = remaining
-                if (remaining <= 0) {
-                    _errorMessage.value = null
+                val currentRemainingMs = targetEndTimeMs - System.currentTimeMillis()
+                if (currentRemainingMs <= 0) {
                     break
                 }
+                _lockoutTimeRemaining.value = currentRemainingMs / 1000
                 delay(1000)
             }
+            _lockoutTimeRemaining.value = 0
+            _errorMessage.value = null
         }
     }
 
@@ -201,13 +226,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun checkPin(inputPin: String) {
-        // Intercept for Self-Destruct
         if (pinManager.isSelfDestructPinSet() && pinManager.checkSelfDestructPin(inputPin)) {
             executeSelfDestruct()
             return
         }
 
-        // Standard Auth Flow
         val remainingTime = pinManager.getRemainingLockoutTime()
         if (remainingTime > 0) {
             startLockoutTimer()
@@ -238,7 +261,43 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return pinManager.checkPin(inputPin)
     }
 
+    private fun executeSelfDestruct() {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.clearAllTables()
+            pinManager.wipeAllSecureData()
+            prefs.edit().clear().apply()
+
+            launch(Dispatchers.Main) {
+                _isPinSet.value = false
+                _isSelfDestructSet.value = false
+                _isAuthenticated.value = false
+                _isBiometricEnabled.value = false
+                _isClipboardClearEnabled.value = false
+                _isPinScrambleEnabled.value = false
+                _isAutoSaveEnabled.value = true
+                _isDarkTheme.value = false
+                _autoLockTimeout.value = 0L
+                _isPinLockoutEnabled.value = true
+                _errorMessage.value = "Device data wiped for security."
+            }
+        }
+    }
+
     // --- BIOMETRIC SECURITY ---
+    private val _isBiometricEnabled = MutableStateFlow(prefs.getBoolean("biometric_enabled", false))
+    val isBiometricEnabled = _isBiometricEnabled.asStateFlow()
+
+    fun toggleBiometricAuth(enabled: Boolean) {
+        _isBiometricEnabled.value = enabled
+        prefs.edit().putBoolean("biometric_enabled", enabled).apply()
+    }
+
+    fun canUseBiometrics(context: Context): Boolean {
+        val biometricManager = BiometricManager.from(context)
+        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
+        return biometricManager.canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS
+    }
+
     private fun getBiometricCipher(): Cipher? {
         val keyName = "notely_biometric_key"
         try {
@@ -254,10 +313,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         keyName,
                         KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
                     )
-                    .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
-                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
-                    .setUserAuthenticationRequired(true)
-                    .build()
+                        .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
+                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
+                        .setUserAuthenticationRequired(true)
+                        .build()
                 )
                 keyGenerator.generateKey()
             }
@@ -278,43 +337,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun executeSelfDestruct() {
-        viewModelScope.launch(Dispatchers.IO) {
-            database.clearAllTables()
-            pinManager.wipeAllSecureData()
-            prefs.edit().clear().apply()
-
-            launch(Dispatchers.Main) {
-                _isPinSet.value = false
-                _isSelfDestructSet.value = false
-                _isAuthenticated.value = false
-                _isBiometricEnabled.value = false
-                _isClipboardClearEnabled.value = false
-                _isPinScrambleEnabled.value = false  // Reset scramble toggle
-                _isAutoSaveEnabled.value = true
-                _isDarkTheme.value = false
-                _autoLockTimeout.value = 0L
-                _isPinLockoutEnabled.value = true
-                _errorMessage.value = "Device data wiped for security."
-            }
-        }
-    }
-
-    // BIOMETRIC SECURITY
-    private val _isBiometricEnabled = MutableStateFlow(prefs.getBoolean("biometric_enabled", false))
-    val isBiometricEnabled = _isBiometricEnabled.asStateFlow()
-
-    fun toggleBiometricAuth(enabled: Boolean) {
-        _isBiometricEnabled.value = enabled
-        prefs.edit().putBoolean("biometric_enabled", enabled).apply()
-    }
-
-    fun canUseBiometrics(context: Context): Boolean {
-        val biometricManager = BiometricManager.from(context)
-        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
-        return biometricManager.canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS
-    }
-
     fun showBiometricPrompt(activity: FragmentActivity) {
         val executor = ContextCompat.getMainExecutor(activity)
 
@@ -323,19 +345,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     super.onAuthenticationSucceeded(result)
                     try {
-                        // Verify cryptographically
-                        result.cryptoObject!!.cipher!!.doFinal("dummy".toByteArray())
+                        // Safely verify cryptographically inside the try block
+                        result.cryptoObject!!.cipher!!.doFinal("notely_auth".toByteArray(Charsets.UTF_8))
                         _isAuthenticated.value = true
                         _errorMessage.value = null
                         _lockoutTimeRemaining.value = 0L
-                        pinManager.resetFailures() // Using Biometrics completely wipes the PIN penalty
+                        pinManager.resetFailures()
                     } catch (e: Exception) {
-                        _errorMessage.value = "Biometric Error: Authentication could not be cryptographically verified."
+                        _errorMessage.value = "Biometric authentication failed due to cryptographic error."
                     }
-                    _isAuthenticated.value = true
-                    _errorMessage.value = null
-                    _lockoutTimeRemaining.value = 0L
-                    pinManager.resetFailures()
                 }
 
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
@@ -483,9 +501,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     val type = object : TypeToken<List<Note>>() {}.type
                     val importedNotes: List<Note> = gson.fromJson(jsonString, type)
 
-                    importedNotes.forEach { note ->
-                        noteDao.insert(note.copy(id = 0))
+                    val notesToInsert = importedNotes.map { note ->
+                        note.copy(id = 0)
                     }
+                    noteDao.insertAll(notesToInsert)
                 }
                 _errorMessage.value = "Import Successful"
             } catch (e: Exception) {
