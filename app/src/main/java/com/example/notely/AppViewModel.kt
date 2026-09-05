@@ -176,10 +176,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
 
-            val targetEndTimeMs = System.currentTimeMillis() + (initialRemaining * 1000)
+            val targetEndTimeMs = android.os.SystemClock.elapsedRealtime() + (initialRemaining * 1000)
 
             while (true) {
-                val currentRemainingMs = targetEndTimeMs - System.currentTimeMillis()
+                val currentRemainingMs = targetEndTimeMs - android.os.SystemClock.elapsedRealtime()
                 if (currentRemainingMs <= 0) {
                     break
                 }
