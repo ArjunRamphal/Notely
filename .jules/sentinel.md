@@ -16,3 +16,8 @@
 **Vulnerability:** Keystore keys generated with `setUserAuthenticationRequired(true)` are permanently invalidated by Android if the user changes or removes their enrolled biometrics, causing unhandled `KeyPermanentlyInvalidatedException` on subsequent cipher initializations and locking the user out.
 **Learning:** Keys tied to biometric authentication have a volatile lifecycle.
 **Prevention:** Always catch `KeyPermanentlyInvalidatedException` when initializing a `Cipher` for biometric keys, delete the invalidated key alias from the Keystore, and optionally re-generate a new key before proceeding.
+
+## 2025-09-05 - Time Manipulation & Permanent Lockout Vulnerability
+**Vulnerability:** The PIN manager used `SystemClock.elapsedRealtime()` for persisting lockout timestamps to `SharedPreferences`, causing permanent app lockouts upon device reboot because `elapsedRealtime()` resets to zero. Conversely, the view model used `System.currentTimeMillis()` for an in-memory lockout timer loop, allowing the timer to be bypassed if the user manipulated the system clock while the app was running.
+**Learning:** You must use `System.currentTimeMillis()` for storing lockout timestamps persistently (e.g. `SharedPreferences`) to withstand device reboots. However, for in-memory timers and durations running during a single session, you must use `SystemClock.elapsedRealtime()` to be immune to system clock manipulation.
+**Prevention:** Always evaluate the lifecycle of a time measurement. Persisted time should use `System.currentTimeMillis()`. Volatile, in-memory durations should use `SystemClock.elapsedRealtime()`.
