@@ -44,7 +44,9 @@ class PinManagerTest {
     fun testCheckPin_WhenLockedOut_ReturnsFalse() {
         if (pinManager == null) return
         prefs.edit().putBoolean("LOCKOUT_ENABLED", true).commit()
-        prefs.edit().putLong("LOCKOUT_TIMESTAMP", System.currentTimeMillis() + 10000).commit()
+        prefs.edit().putLong("LOCKOUT_TIMESTAMP", android.os.SystemClock.elapsedRealtime() + 10000).commit()
+        prefs.edit().putLong("LOCKOUT_WALL_CLOCK", System.currentTimeMillis() + 10000).commit()
+        prefs.edit().putLong("LOCKOUT_DURATION", 10000).commit()
 
         val result = pinManager!!.checkPin("1234")
         assertFalse(result)
@@ -137,8 +139,13 @@ class PinManagerTest {
         prefs.edit().putInt("FAILED_ATTEMPTS", 2).apply()
         assertEquals(2, pinManager!!.getFailedAttempts())
 
-        val now = System.currentTimeMillis()
-        prefs.edit().putLong("LOCKOUT_TIMESTAMP", now + 10000).apply() 
+        val nowElapsed = android.os.SystemClock.elapsedRealtime()
+        val nowWall = System.currentTimeMillis()
+        prefs.edit()
+            .putLong("LOCKOUT_TIMESTAMP", nowElapsed + 10000)
+            .putLong("LOCKOUT_WALL_CLOCK", nowWall + 10000)
+            .putLong("LOCKOUT_DURATION", 10000)
+            .apply()
         assertTrue(pinManager!!.getRemainingLockoutTime() > 0)
     }
 
