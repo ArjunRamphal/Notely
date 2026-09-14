@@ -16,3 +16,7 @@
 **Vulnerability:** Keystore keys generated with `setUserAuthenticationRequired(true)` are permanently invalidated by Android if the user changes or removes their enrolled biometrics, causing unhandled `KeyPermanentlyInvalidatedException` on subsequent cipher initializations and locking the user out.
 **Learning:** Keys tied to biometric authentication have a volatile lifecycle.
 **Prevention:** Always catch `KeyPermanentlyInvalidatedException` when initializing a `Cipher` for biometric keys, delete the invalidated key alias from the Keystore, and optionally re-generate a new key before proceeding.
+## 2026-09-14 - Prevent permanent lockout vulnerability on reboot
+**Vulnerability:** Relying solely on `SystemClock.elapsedRealtime()` for lockout durations causes a permanent lockout (DoS) upon device reboot because the elapsed time resets to 0.
+**Learning:** Security-critical timeouts should use `elapsedRealtime()` to prevent system time manipulation, but must also persist the lockout duration and a wall-clock fallback (`System.currentTimeMillis()`) to handle reboots safely.
+**Prevention:** Use a hybrid approach: save the monotonic timestamp, duration, and wall-clock fallback. If `lockoutTime - now > duration` indicates a reboot, fallback to the wall-clock timestamp.
