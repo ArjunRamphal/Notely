@@ -55,6 +55,8 @@ class PinManager(context: Context) {
             .putString("ENCRYPTED_PIN_DATA", encryptedData)
             .putInt("FAILED_ATTEMPTS", 0)
             .putLong("LOCKOUT_TIMESTAMP", 0)
+            .putLong("LOCKOUT_TIMESTAMP_WALL", 0)
+            .putLong("LOCKOUT_DURATION", 0)
             .putInt("LOCKOUT_MULTIPLIER", 1) // Reset multiplier
             .apply()
     }
@@ -223,7 +225,17 @@ class PinManager(context: Context) {
     private fun isLockedOut(): Boolean {
         if (!isLockoutEnabled()) return false
         val lockoutTime = sharedPreferences.getLong("LOCKOUT_TIMESTAMP", 0)
-        return SystemClock.elapsedRealtime() < lockoutTime
+        if (lockoutTime == 0L) return false
+
+        val duration = sharedPreferences.getLong("LOCKOUT_DURATION", 0)
+        val now = SystemClock.elapsedRealtime()
+
+        if (lockoutTime - now > duration) {
+            val lockoutTimeWall = sharedPreferences.getLong("LOCKOUT_TIMESTAMP_WALL", 0)
+            return System.currentTimeMillis() < lockoutTimeWall
+        }
+
+        return now < lockoutTime
     }
 
     private fun incrementFailures() {
@@ -237,6 +249,8 @@ class PinManager(context: Context) {
             val duration = BASE_LOCKOUT_DURATION_MS * multiplier
 
             editor.putLong("LOCKOUT_TIMESTAMP", SystemClock.elapsedRealtime() + duration)
+            editor.putLong("LOCKOUT_TIMESTAMP_WALL", System.currentTimeMillis() + duration)
+            editor.putLong("LOCKOUT_DURATION", duration)
             editor.putInt("LOCKOUT_MULTIPLIER", multiplier * 2) // Double it for the next lockout
             editor.putInt("FAILED_ATTEMPTS", 0) // Reset so they get 5 fresh attempts AFTER the lockout expires
         } else {
@@ -249,6 +263,8 @@ class PinManager(context: Context) {
         sharedPreferences.edit()
             .putInt("FAILED_ATTEMPTS", 0)
             .putLong("LOCKOUT_TIMESTAMP", 0)
+            .putLong("LOCKOUT_TIMESTAMP_WALL", 0)
+            .putLong("LOCKOUT_DURATION", 0)
             .putInt("LOCKOUT_MULTIPLIER", 1) // Completely resets the punishment bracket
             .apply()
     }
@@ -262,7 +278,17 @@ class PinManager(context: Context) {
         if (!isLockoutEnabled()) return 0
 
         val lockoutTime = sharedPreferences.getLong("LOCKOUT_TIMESTAMP", 0)
+        if (lockoutTime == 0L) return 0
+
+        val duration = sharedPreferences.getLong("LOCKOUT_DURATION", 0)
         val now = SystemClock.elapsedRealtime()
+
+        if (lockoutTime - now > duration) {
+            val lockoutTimeWall = sharedPreferences.getLong("LOCKOUT_TIMESTAMP_WALL", 0)
+            val nowWall = System.currentTimeMillis()
+            return if (nowWall < lockoutTimeWall) (lockoutTimeWall - nowWall) / 1000 else 0
+        }
+
         return if (now < lockoutTime) (lockoutTime - now) / 1000 else 0 // returns seconds remaining
     }
 
