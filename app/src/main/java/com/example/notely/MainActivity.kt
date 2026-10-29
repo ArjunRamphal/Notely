@@ -288,7 +288,8 @@ fun NotesScreen(
             modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(filteredNotes) { note ->
+            // ⚡ Bolt: Adding stable key prevents O(N) recompositions on sorting
+            items(filteredNotes, key = { it.id }) { note ->
                 NoteCard(
                     note = note,
                     onNoteClick = onNoteClick,
