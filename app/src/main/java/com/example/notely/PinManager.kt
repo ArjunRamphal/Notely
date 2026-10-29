@@ -75,7 +75,7 @@ class PinManager(context: Context) {
             val inputHash = hashPin(inputPin, storedSalt)
             return inputHash == storedHash
         } catch (e: Exception) {
-            e.printStackTrace()
+            // Cryptographic or KeyStore exception caught and suppressed to prevent information leakage
             return false
         }
     }
@@ -143,7 +143,7 @@ class PinManager(context: Context) {
                 keyStore.deleteEntry(KEY_ALIAS)
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            // Cryptographic or KeyStore exception caught and suppressed to prevent information leakage
         }
     }
 
