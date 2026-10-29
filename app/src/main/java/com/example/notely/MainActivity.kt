@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -63,6 +64,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
@@ -284,17 +286,47 @@ fun NotesScreen(
             FloatingActionButton(onClick = onAddClick) { Icon(Icons.Default.Add, "Add Note") }
         }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(filteredNotes) { note ->
-                NoteCard(
-                    note = note,
-                    onNoteClick = onNoteClick,
-                    onDeleteClick = { noteToDelete = note },
-                    onFavoriteClick = { viewModel.toggleFavorite(note) }
-                )
+        if (filteredNotes.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(padding).padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    val isSearch = searchQuery.isNotBlank()
+                    Icon(
+                        imageVector = if (isSearch) Icons.Default.Search else Icons.Default.ContentPaste,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = if (isSearch) "No results found" else "No notes yet",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = if (isSearch) "Try a different search term" else "Tap + to create your first note",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(filteredNotes) { note ->
+                    NoteCard(
+                        note = note,
+                        onNoteClick = onNoteClick,
+                        onDeleteClick = { noteToDelete = note },
+                        onFavoriteClick = { viewModel.toggleFavorite(note) }
+                    )
+                }
             }
         }
         if (noteToDelete != null) {
