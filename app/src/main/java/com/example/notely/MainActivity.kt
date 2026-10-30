@@ -391,11 +391,12 @@ fun NoteCard(
 
             if (note.tags.isNotEmpty()) {
                 val tagList = remember(note.tags) {
-                    note.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                    note.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }.distinct()
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(tagList) { tag ->
+                    // ⚡ Bolt: Adding stable key prevents O(N) recompositions on tag list updates
+                    items(tagList, key = { it }) { tag ->
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.background.copy(alpha = 0.5f),
