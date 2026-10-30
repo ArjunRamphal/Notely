@@ -50,6 +50,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -284,18 +285,49 @@ fun NotesScreen(
             FloatingActionButton(onClick = onAddClick) { Icon(Icons.Default.Add, "Add Note") }
         }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // ⚡ Bolt: Adding stable key prevents O(N) recompositions on sorting
-            items(filteredNotes, key = { it.id }) { note ->
-                NoteCard(
-                    note = note,
-                    onNoteClick = onNoteClick,
-                    onDeleteClick = { noteToDelete = note },
-                    onFavoriteClick = { viewModel.toggleFavorite(note) }
-                )
+        if (filteredNotes.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (searchQuery.isNotEmpty()) {
+                    Text(
+                        text = "No notes found matching \"$searchQuery\"",
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(64.dp).padding(bottom = 16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                        Text(
+                            text = "No notes yet.\nTap the + button to create one.",
+                            style = MaterialTheme.typography.bodyLarge,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // ⚡ Bolt: Adding stable key prevents O(N) recompositions on sorting
+                items(filteredNotes, key = { it.id }) { note ->
+                    NoteCard(
+                        note = note,
+                        onNoteClick = onNoteClick,
+                        onDeleteClick = { noteToDelete = note },
+                        onFavoriteClick = { viewModel.toggleFavorite(note) }
+                    )
+                }
             }
         }
         if (noteToDelete != null) {
