@@ -73,7 +73,7 @@ class PinManager(context: Context) {
             val storedHash = parts[1]
 
             val inputHash = hashPin(inputPin, storedSalt)
-            return inputHash == storedHash
+            return java.security.MessageDigest.isEqual(inputHash.toByteArray(Charsets.UTF_8), storedHash.toByteArray(Charsets.UTF_8))
         } catch (e: Exception) {
             // Sentinel: Prevent information leakage from cryptographic exceptions
             return false
