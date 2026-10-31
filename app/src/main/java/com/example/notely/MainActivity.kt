@@ -391,11 +391,13 @@ fun NoteCard(
 
             if (note.tags.isNotEmpty()) {
                 val tagList = remember(note.tags) {
-                    note.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                    // ⚡ Bolt: Adding distinct() to ensure tags are unique and avoid IllegalArgumentException
+                    note.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }.distinct()
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(tagList) { tag ->
+                    // ⚡ Bolt: Adding stable key prevents O(N) recompositions
+                    items(tagList, key = { it }) { tag ->
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.background.copy(alpha = 0.5f),
