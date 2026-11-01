@@ -46,6 +46,8 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -273,6 +275,14 @@ fun NotesScreen(
                     active = false,
                     onActiveChange = {},
                     placeholder = { Text("Search...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                            }
+                        }
+                    },
                     modifier = Modifier.weight(1f)
                 ) {}
                 IconButton(onClick = { viewModel.toggleTheme() }, modifier = Modifier.size(48.dp)) {
