@@ -249,6 +249,8 @@ fun NotesScreen(
     var searchQuery by remember { mutableStateOf("") }
 
     val filteredNotes = remember(notes, searchQuery) {
+        // ⚡ Bolt: Early return prevents O(N) allocation when query is empty
+        if (searchQuery.isBlank()) return@remember notes
         notes.filter {
             it.title.contains(searchQuery, ignoreCase = true) ||
                     it.content.contains(searchQuery, ignoreCase = true) ||
