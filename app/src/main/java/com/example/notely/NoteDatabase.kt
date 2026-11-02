@@ -197,5 +197,21 @@ abstract class NoteDatabase : RoomDatabase() {
 
             return cipher.doFinal(encryptedBytes)
         }
+
+        fun wipeDatabaseKeys(context: Context) {
+            // Clear encrypted blob
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().clear().apply()
+
+            // Delete Master Key
+            try {
+                val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
+                keyStore.load(null)
+                if (keyStore.containsAlias(KEY_ALIAS)) {
+                    keyStore.deleteEntry(KEY_ALIAS)
+                }
+            } catch (e: Exception) {
+                // Sentinel: Prevent information leakage from cryptographic exceptions
+            }
+        }
     }
 }
