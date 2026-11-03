@@ -286,7 +286,10 @@ fun NotesScreen(
                     modifier = Modifier.weight(1f)
                 ) {}
                 IconButton(onClick = { viewModel.toggleTheme() }, modifier = Modifier.size(48.dp)) {
-                    Icon(if (isDark) Icons.Default.Face else Icons.Default.Star, "Toggle Theme")
+                    Icon(
+                        imageVector = if (isDark) Icons.Default.Face else Icons.Default.Star,
+                        contentDescription = if (isDark) "Switch to Light Theme" else "Switch to Dark Theme"
+                    )
                 }
                 IconButton(onClick = onSettingsClick, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Default.Settings, "Settings")
