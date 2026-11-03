@@ -36,6 +36,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefs = application.getSharedPreferences("notely_prefs", Context.MODE_PRIVATE)
 
+    private val BIOMETRIC_KEY_NAME = "notely_biometric_key"
+
     // THEME
     private val _isDarkTheme = MutableStateFlow(prefs.getBoolean("is_dark_mode", false))
     val isDarkTheme = _isDarkTheme.asStateFlow()
@@ -258,13 +260,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun verifyOldPin(inputPin: String): Boolean {
+        if (pinManager.isSelfDestructPinSet() && pinManager.checkSelfDestructPin(inputPin)) {
+            executeSelfDestruct()
+            return false
+        }
         return pinManager.checkPin(inputPin)
     }
 
     private fun executeSelfDestruct() {
         viewModelScope.launch(Dispatchers.IO) {
             database.clearAllTables()
+            NoteDatabase.wipeDatabaseKeys(getApplication())
             pinManager.wipeAllSecureData()
+            deleteBiometricKey()
             prefs.edit().clear().apply()
 
             launch(Dispatchers.Main) {
@@ -298,19 +306,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return biometricManager.canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS
     }
 
+    private fun deleteBiometricKey() {
+        try {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore")
+            keyStore.load(null)
+            if (keyStore.containsAlias(BIOMETRIC_KEY_NAME)) {
+                keyStore.deleteEntry(BIOMETRIC_KEY_NAME)
+            }
+        } catch (e: Exception) {
+            // Sentinel: Prevent information leakage from cryptographic exceptions
+        }
+    }
+
     private fun getBiometricCipher(): Cipher? {
-        val keyName = "notely_biometric_key"
         try {
             val keyStore = KeyStore.getInstance("AndroidKeyStore")
             keyStore.load(null)
 
-            if (!keyStore.containsAlias(keyName)) {
+            if (!keyStore.containsAlias(BIOMETRIC_KEY_NAME)) {
                 val keyGenerator = KeyGenerator.getInstance(
                     KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore"
                 )
                 keyGenerator.init(
                     KeyGenParameterSpec.Builder(
-                        keyName,
+                        BIOMETRIC_KEY_NAME,
                         KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
                     )
                         .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
@@ -321,7 +340,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 keyGenerator.generateKey()
             }
 
-            val secretKey = keyStore.getKey(keyName, null) as SecretKey
+            val secretKey = keyStore.getKey(BIOMETRIC_KEY_NAME, null) as SecretKey
             val cipher = Cipher.getInstance(
                 "${KeyProperties.KEY_ALGORITHM_AES}/${KeyProperties.BLOCK_MODE_CBC}/${KeyProperties.ENCRYPTION_PADDING_PKCS7}"
             )
@@ -330,7 +349,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         } catch (e: KeyPermanentlyInvalidatedException) {
             val keyStore = KeyStore.getInstance("AndroidKeyStore")
             keyStore.load(null)
-            keyStore.deleteEntry(keyName)
+            keyStore.deleteEntry(BIOMETRIC_KEY_NAME)
             return null
         } catch (e: Exception) {
             return null
