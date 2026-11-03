@@ -4,3 +4,6 @@
 ## 2026-11-01 - Add clear button to Search Bar
 **Learning:** Users often need a quick way to clear search queries. Providing a dedicated clear button in the search bar improves usability and saves them from deleting text manually.
 **Action:** Always include a clear action (trailing icon) in search input fields when they contain text.
+## 2024-05-24 - Dynamic Accessibility Labels
+**Learning:** Static labels for stateful toggle buttons (like 'Favorite' or 'Toggle Theme') leave screen reader users without feedback about the current state or resulting action.
+**Action:** Always use dynamic, state-aware 'contentDescription' values (e.g., 'Add to favorites' vs 'Remove from favorites') for toggle controls.

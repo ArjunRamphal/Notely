@@ -286,7 +286,7 @@ fun NotesScreen(
                     modifier = Modifier.weight(1f)
                 ) {}
                 IconButton(onClick = { viewModel.toggleTheme() }, modifier = Modifier.size(48.dp)) {
-                    Icon(if (isDark) Icons.Default.Face else Icons.Default.Star, "Toggle Theme")
+                    Icon(if (isDark) Icons.Default.Face else Icons.Default.Star, if (isDark) "Switch to Light Theme" else "Switch to Dark Theme")
                 }
                 IconButton(onClick = onSettingsClick, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Default.Settings, "Settings")
@@ -387,7 +387,7 @@ fun NoteCard(
                     IconButton(onClick = { onFavoriteClick(note) }) {
                         Icon(
                             imageVector = if (note.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = "Favorite",
+                            contentDescription = if (note.isFavorite) "Remove from favorites" else "Add to favorites",
                             tint = if (note.isFavorite) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
