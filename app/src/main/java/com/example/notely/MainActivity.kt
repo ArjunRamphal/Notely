@@ -336,8 +336,9 @@ fun NotesScreen(
                     NoteCard(
                         note = note,
                         onNoteClick = onNoteClick,
-                        onDeleteClick = { noteToDelete = note },
-                        onFavoriteClick = { viewModel.toggleFavorite(note) }
+                        // ⚡ Bolt: Stabilize lambda to prevent O(N) recompositions on list update
+                        onDeleteClick = remember(note) { { noteToDelete = note } },
+                        onFavoriteClick = remember(note) { { viewModel.toggleFavorite(note) } }
                     )
                 }
             }

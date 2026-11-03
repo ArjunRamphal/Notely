@@ -7,3 +7,6 @@
 ## 2026-11-01 - Optimize Search Filtering
 **Learning:** Unconditional O(N) list filtering triggers unnecessary CPU and memory allocation on every list update when the search query is empty.
 **Action:** Add early return inside derived state calculations when the query is blank to return the original reference.
+## 2026-11-03 - Avoid Lambda Capture in Compose
+**Learning:** Capturing outer iteration variables inside lambdas passed to child composables (e.g., in LazyColumn) causes unnecessary O(N) recompositions on every list update.
+**Action:** Use the inner lambda's iteration variable (e.g., `it`) instead of capturing the outer scope.
