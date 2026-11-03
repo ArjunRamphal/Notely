@@ -181,6 +181,18 @@ abstract class NoteDatabase : RoomDatabase() {
             return Base64.encodeToString(combined, Base64.NO_WRAP)
         }
 
+        fun deleteMasterKey() {
+            try {
+                val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
+                keyStore.load(null)
+                if (keyStore.containsAlias(KEY_ALIAS)) {
+                    keyStore.deleteEntry(KEY_ALIAS)
+                }
+            } catch (e: Exception) {
+                // Sentinel: Prevent information leakage
+            }
+        }
+
         private fun decryptKey(base64Data: String): ByteArray {
             val combined = Base64.decode(base64Data, Base64.NO_WRAP)
 

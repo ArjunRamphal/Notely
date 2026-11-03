@@ -34,6 +34,22 @@ import javax.crypto.spec.SecretKeySpec
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
+    companion object {
+        private const val BIOMETRIC_KEY_ALIAS = "notely_biometric_key"
+
+        fun deleteBiometricKey() {
+            try {
+                val keyStore = KeyStore.getInstance("AndroidKeyStore")
+                keyStore.load(null)
+                if (keyStore.containsAlias(BIOMETRIC_KEY_ALIAS)) {
+                    keyStore.deleteEntry(BIOMETRIC_KEY_ALIAS)
+                }
+            } catch (e: Exception) {
+                // Sentinel: Prevent information leakage
+            }
+        }
+    }
+
     private val prefs = application.getSharedPreferences("notely_prefs", Context.MODE_PRIVATE)
 
     // THEME
@@ -265,6 +281,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             database.clearAllTables()
             pinManager.wipeAllSecureData()
+            NoteDatabase.deleteMasterKey()
+            deleteBiometricKey()
             prefs.edit().clear().apply()
 
             launch(Dispatchers.Main) {
@@ -299,7 +317,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun getBiometricCipher(): Cipher? {
-        val keyName = "notely_biometric_key"
+        val keyName = BIOMETRIC_KEY_ALIAS
         try {
             val keyStore = KeyStore.getInstance("AndroidKeyStore")
             keyStore.load(null)

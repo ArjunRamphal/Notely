@@ -21,3 +21,7 @@
 **Vulnerability:** PIN hash verification used standard string equality, which returns early on the first mismatched character, creating a timing side-channel that could theoretically allow attackers to deduce the stored hash.
 **Learning:** Cryptographic comparisons must always evaluate in constant time regardless of the input values to prevent timing attacks.
 **Prevention:** Use java.security.MessageDigest.isEqual() for comparing security-sensitive hashes or keys.
+## 2024-11-20 - Cryptographic Shredding Vulnerability
+**Vulnerability:** Keystore keys (SQLCipher Master Key, Biometrics) are not explicitly deleted during self-destruct.
+**Learning:** Clearing standard app data or database tables is insufficient for secure data wipes if the hardware-backed encryption keys survive.
+**Prevention:** Always explicitly delete corresponding hardware-backed keys from the AndroidKeyStore during cryptographic shredding or data wipe operations.
