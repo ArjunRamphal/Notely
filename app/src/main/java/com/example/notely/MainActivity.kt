@@ -48,6 +48,8 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -55,6 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -480,7 +483,9 @@ fun SettingsScreen(
     var currentPage by remember { mutableStateOf(SettingsPage.Root) }
 
     var showExportPasswordDialog by remember { mutableStateOf(false) }
+    var exportPasswordVisible by remember { mutableStateOf(false) }
     var showImportPasswordDialog by remember { mutableStateOf(false) }
+    var importPasswordVisible by remember { mutableStateOf(false) }
     var tempPassword by remember { mutableStateOf("") }
     var selectedImportUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var showRemoveSelfDestructDialog by remember { mutableStateOf(false) }
@@ -766,8 +771,13 @@ fun SettingsScreen(
                             onValueChange = { tempPassword = it },
                             label = { Text("Password") },
                             singleLine = true,
-                            visualTransformation = PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                            visualTransformation = if (exportPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            trailingIcon = {
+                                IconButton(onClick = { exportPasswordVisible = !exportPasswordVisible }) {
+                                    Icon(if (exportPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, contentDescription = if (exportPasswordVisible) "Hide password" else "Show password")
+                                }
+                            }
                         )
                     }
                 },
@@ -802,8 +812,13 @@ fun SettingsScreen(
                             onValueChange = { tempPassword = it },
                             label = { Text("Password") },
                             singleLine = true,
-                            visualTransformation = PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                            visualTransformation = if (importPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            trailingIcon = {
+                                IconButton(onClick = { importPasswordVisible = !importPasswordVisible }) {
+                                    Icon(if (importPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, contentDescription = if (importPasswordVisible) "Hide password" else "Show password")
+                                }
+                            }
                         )
                     }
                 },
