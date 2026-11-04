@@ -36,7 +36,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefs = application.getSharedPreferences("notely_prefs", Context.MODE_PRIVATE)
 
-    private val BIOMETRIC_KEY_NAME = "notely_biometric_key"
+    companion object {
+        private const val BIOMETRIC_KEY_NAME = "notely_biometric_key"
+        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+    }
 
     // THEME
     private val _isDarkTheme = MutableStateFlow(prefs.getBoolean("is_dark_mode", false))
@@ -308,7 +311,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun deleteBiometricKey() {
         try {
-            val keyStore = KeyStore.getInstance("AndroidKeyStore")
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
             keyStore.load(null)
             if (keyStore.containsAlias(BIOMETRIC_KEY_NAME)) {
                 keyStore.deleteEntry(BIOMETRIC_KEY_NAME)
@@ -320,12 +323,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun getBiometricCipher(): Cipher? {
         try {
-            val keyStore = KeyStore.getInstance("AndroidKeyStore")
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
             keyStore.load(null)
 
             if (!keyStore.containsAlias(BIOMETRIC_KEY_NAME)) {
                 val keyGenerator = KeyGenerator.getInstance(
-                    KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore"
+                    KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE
                 )
                 keyGenerator.init(
                     KeyGenParameterSpec.Builder(
@@ -347,7 +350,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             cipher.init(Cipher.ENCRYPT_MODE, secretKey)
             return cipher
         } catch (e: KeyPermanentlyInvalidatedException) {
-            val keyStore = KeyStore.getInstance("AndroidKeyStore")
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
             keyStore.load(null)
             keyStore.deleteEntry(BIOMETRIC_KEY_NAME)
             return null
