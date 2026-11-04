@@ -19,8 +19,10 @@ class PinManager(context: Context) {
     // Standard SharedPreferences (We will only store ENCRYPTED blobs here)
     private val sharedPreferences = context.getSharedPreferences("notely_secure_prefs", Context.MODE_PRIVATE)
 
-    private val KEY_ALIAS = "notely_pin_key"
-    private val ANDROID_KEYSTORE = "AndroidKeyStore"
+    companion object {
+        private const val KEY_ALIAS = "notely_pin_key"
+        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+    }
 
     // --- SECURITY CONFIGURATION ---
     private val ITERATIONS = 100_000
