@@ -10,3 +10,6 @@
 ## 2026-11-03 - Avoid Lambda Capture in Compose
 **Learning:** Capturing outer iteration variables inside lambdas passed to child composables (e.g., in LazyColumn) causes unnecessary O(N) recompositions on every list update.
 **Action:** Use the inner lambda's iteration variable (e.g., `it`) instead of capturing the outer scope.
+## 2024-11-06 - Memoize SimpleDateFormat
+**Learning:** Instantiating SimpleDateFormat inside list items (like NoteCard) causes unnecessary allocations during recomposition.
+**Action:** Memoize using remember.

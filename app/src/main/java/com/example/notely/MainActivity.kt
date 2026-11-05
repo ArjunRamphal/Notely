@@ -462,8 +462,11 @@ fun NoteCard(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
-            val dateText = java.text.SimpleDateFormat("MMM dd, HH:mm", java.util.Locale.getDefault())
-                .format(java.util.Date(note.timestamp))
+            // ⚡ Bolt: Memoize expensive date formatting to avoid recalculation on every recomposition
+            val dateText = remember(note.timestamp) {
+                java.text.SimpleDateFormat("MMM dd, HH:mm", java.util.Locale.getDefault())
+                    .format(java.util.Date(note.timestamp))
+            }
             Text(dateText, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
