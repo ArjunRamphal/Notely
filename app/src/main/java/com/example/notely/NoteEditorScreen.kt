@@ -23,6 +23,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -126,7 +128,7 @@ fun NoteEditorScreen(
                             )
                         }) {
                             val tint = if (richTextState.isTypingBold) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                            Text("B", fontWeight = FontWeight.Bold, fontSize = MaterialTheme.typography.titleLarge.fontSize, color = tint)
+                            Text("B", modifier = Modifier.clearAndSetSemantics { contentDescription = "Toggle Bold" }, fontWeight = FontWeight.Bold, fontSize = MaterialTheme.typography.titleLarge.fontSize, color = tint)
                         }
                     }
 
@@ -140,7 +142,7 @@ fun NoteEditorScreen(
                             )
                         }) {
                             val tint = if (richTextState.isTypingItalic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                            Text("I", fontStyle = FontStyle.Italic, fontSize = MaterialTheme.typography.titleLarge.fontSize, fontFamily = FontFamily.Serif, color = tint)
+                            Text("I", modifier = Modifier.clearAndSetSemantics { contentDescription = "Toggle Italic" }, fontStyle = FontStyle.Italic, fontSize = MaterialTheme.typography.titleLarge.fontSize, fontFamily = FontFamily.Serif, color = tint)
                         }
                     }
 

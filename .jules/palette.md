@@ -10,3 +10,6 @@
 ## 2026-11-04 - Password Visibility Toggle
 **Learning:** Users experience high friction and error rates when entering passwords blindly. Providing a visibility toggle significantly improves the UX of password entry fields, especially in sensitive contexts like backups.
 **Action:** Always include a visibility toggle (e.g., using `VisualTransformation` and a trailing `IconButton`) for password input fields.
+## 2026-11-05 - Add clearAndSetSemantics for standalone text icons
+**Learning:** Standalone text characters (like 'B' or 'I') inside icon buttons without an explicit contentDescription fail to provide context to screen readers.
+**Action:** Use `Modifier.clearAndSetSemantics { contentDescription = '...' }` on standalone text characters functioning as icons to provide accurate feedback to screen readers.
