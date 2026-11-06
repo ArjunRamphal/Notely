@@ -13,3 +13,6 @@
 ## 2026-11-05 - Add clearAndSetSemantics for standalone text icons
 **Learning:** Standalone text characters (like 'B' or 'I') inside icon buttons without an explicit contentDescription fail to provide context to screen readers.
 **Action:** Use `Modifier.clearAndSetSemantics { contentDescription = '...' }` on standalone text characters functioning as icons to provide accurate feedback to screen readers.
+## 2024-05-24 - Make ListItems toggleable
+**Learning:** Setting Switch onCheckedChange to null and adding toggleable to the parent ListItem expands the tap target and improves accessibility.
+**Action:** Use this pattern whenever a Switch is presented alongside explanatory text.
