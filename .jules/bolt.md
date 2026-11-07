@@ -13,3 +13,6 @@
 ## 2024-11-06 - Memoize SimpleDateFormat
 **Learning:** Instantiating SimpleDateFormat inside list items (like NoteCard) causes unnecessary allocations during recomposition.
 **Action:** Memoize using remember.
+## 2024-11-07 - Hoist AnnotatedString instantiation
+**Learning:** Instantiating expensive objects like `AnnotatedString` inside layout or measure phase callbacks (such as `VisualTransformation` lambdas) causes them to be called on every layout/measure pass.
+**Action:** Hoist them into an enclosing `remember` block to compute only when the state changes.

@@ -212,7 +212,8 @@ fun NoteEditorScreen(
                 },
                 placeholder = { Text("Start typing...") },
                 visualTransformation = remember(richTextState.spans, richTextState.text) {
-                    VisualTransformation { _ -> TransformedText(richTextState.getAnnotatedString(), OffsetMapping.Identity) }
+                    val annotatedString = richTextState.getAnnotatedString()
+                    VisualTransformation { _ -> TransformedText(annotatedString, OffsetMapping.Identity) }
                 },
                 keyboardOptions = secureKeyboardOptions,
                 textStyle = TextStyle(fontFamily = getFontFamily(currentFontName), fontSize = MaterialTheme.typography.bodyLarge.fontSize, color = MaterialTheme.colorScheme.onSurface),
