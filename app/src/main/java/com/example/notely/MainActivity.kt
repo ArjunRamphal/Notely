@@ -54,6 +54,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -631,10 +633,16 @@ fun SettingsScreen(
                         trailingContent = {
                             Switch(
                                 checked = isPinLockoutEnabled,
-                                onCheckedChange = { viewModel.togglePinLockout() }
+                                onCheckedChange = null
                             )
                         },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(
+                                value = isPinLockoutEnabled,
+                                onValueChange = { viewModel.togglePinLockout() },
+                                role = Role.Switch
+                            )
                     )
                     HorizontalDivider()
 
@@ -645,10 +653,16 @@ fun SettingsScreen(
                         trailingContent = {
                             Switch(
                                 checked = isPinScrambleEnabled,
-                                onCheckedChange = { viewModel.togglePinScramble() }
+                                onCheckedChange = null
                             )
                         },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(
+                                value = isPinScrambleEnabled,
+                                onValueChange = { viewModel.togglePinScramble() },
+                                role = Role.Switch
+                            )
                     )
                     HorizontalDivider()
 
@@ -660,10 +674,16 @@ fun SettingsScreen(
                             trailingContent = {
                                 Switch(
                                     checked = isBiometricEnabled,
-                                    onCheckedChange = { viewModel.toggleBiometricAuth(it) }
+                                    onCheckedChange = null
                                 )
                             },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .toggleable(
+                                    value = isBiometricEnabled,
+                                    onValueChange = { viewModel.toggleBiometricAuth(it) },
+                                    role = Role.Switch
+                                )
                         )
                         HorizontalDivider()
                     }
@@ -685,10 +705,16 @@ fun SettingsScreen(
                         trailingContent = {
                             Switch(
                                 checked = isClipboardClearEnabled,
-                                onCheckedChange = { viewModel.toggleClipboardClear() }
+                                onCheckedChange = null
                             )
                         },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(
+                                value = isClipboardClearEnabled,
+                                onValueChange = { viewModel.toggleClipboardClear() },
+                                role = Role.Switch
+                            )
                     )
                     HorizontalDivider()
                 }
@@ -701,10 +727,16 @@ fun SettingsScreen(
                         trailingContent = {
                             Switch(
                                 checked = isAutoSaveEnabled,
-                                onCheckedChange = { viewModel.toggleAutoSave() }
+                                onCheckedChange = null
                             )
                         },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(
+                                value = isAutoSaveEnabled,
+                                onValueChange = { viewModel.toggleAutoSave() },
+                                role = Role.Switch
+                            )
                     )
                     HorizontalDivider()
 
