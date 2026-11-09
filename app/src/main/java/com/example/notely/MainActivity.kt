@@ -71,7 +71,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewModelScope
@@ -385,11 +384,12 @@ fun NoteCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = note.title,
+                    text = note.title.ifBlank { "Untitled Note" },
                     style = MaterialTheme.typography.titleMedium,
                     fontFamily = getFontFamily(note.fontName),
                     modifier = Modifier.weight(1f),
-                    maxLines = 1
+                    maxLines = 1,
+                    color = if (note.title.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
                 )
                 Row {
                     IconButton(onClick = { onFavoriteClick(note) }) {
@@ -819,8 +819,8 @@ fun SettingsScreen(
                     }
                 },
                 confirmButton = {
-                    Button(onClick = {
-                        if (tempPassword.isNotEmpty()) {
+                    Button(
+                        onClick = {
                             showExportPasswordDialog = false
                             // NEW: Bypass auto lock before launching export picker
                             try {
@@ -829,8 +829,9 @@ fun SettingsScreen(
                             } catch (e: Exception) {
                                 Toast.makeText(context, "Could not open file picker", Toast.LENGTH_SHORT).show()
                             }
-                        }
-                    }) { Text("Save") }
+                        },
+                        enabled = tempPassword.isNotEmpty()
+                    ) { Text("Save") }
                 },
                 dismissButton = { TextButton(onClick = { showExportPasswordDialog = false }) { Text("Cancel") } }
             )
@@ -860,14 +861,17 @@ fun SettingsScreen(
                     }
                 },
                 confirmButton = {
-                    Button(onClick = {
-                        if (tempPassword.isNotEmpty() && selectedImportUri != null) {
-                            viewModel.importEncryptedNotes(selectedImportUri!!, tempPassword)
-                            tempPassword = ""
-                            showImportPasswordDialog = false
-                            Toast.makeText(context, "Restoring...", Toast.LENGTH_SHORT).show()
-                        }
-                    }) { Text("Restore") }
+                    Button(
+                        onClick = {
+                            if (selectedImportUri != null) {
+                                viewModel.importEncryptedNotes(selectedImportUri!!, tempPassword)
+                                tempPassword = ""
+                                showImportPasswordDialog = false
+                                Toast.makeText(context, "Restoring...", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        enabled = tempPassword.isNotEmpty()
+                    ) { Text("Restore") }
                 },
                 dismissButton = { TextButton(onClick = { showImportPasswordDialog = false }) { Text("Cancel") } }
             )

@@ -16,3 +16,6 @@
 ## 2024-05-24 - Make ListItems toggleable
 **Learning:** Setting Switch onCheckedChange to null and adding toggleable to the parent ListItem expands the tap target and improves accessibility.
 **Action:** Use this pattern whenever a Switch is presented alongside explanatory text.
+## 2026-11-09 - Disabled States & Empty Fallbacks
+**Learning:** Silently ignoring button clicks when required inputs are empty (e.g., Save Note, Export Password) creates confusing "dead clicks". Additionally, `Text` composables with empty strings can collapse or leave awkward gaps in list items.
+**Action:** Always bind the `enabled` state of interactive elements to their validation logic instead of silently failing inside `onClick`. Provide styled fallback strings (e.g., "Untitled Note" in lower opacity) for optional text fields displayed in lists.
