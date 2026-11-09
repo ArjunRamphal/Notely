@@ -88,10 +88,10 @@ fun NoteEditorScreen(
         }
     }
 
+    val hasContent = title.isNotBlank() || tags.isNotBlank() || textFieldValue.text.isNotBlank()
+
     // --- BACK NAVIGATION LOGIC ---
     val handleBackPress = {
-        val hasContent = title.isNotBlank() || tags.isNotBlank() || textFieldValue.text.isNotBlank()
-
         if (!hasContent) {
             // Note is completely empty, silently exit without prompting or saving
             onDiscard()
@@ -163,9 +163,12 @@ fun NoteEditorScreen(
                         }
                     }
 
-                    IconButton(onClick = {
-                        onSave(title, richTextState.text, currentFontName, tags, StyleSerializer.serialize(richTextState.spans))
-                    }) {
+                    IconButton(
+                        onClick = {
+                            onSave(title, richTextState.text, currentFontName, tags, StyleSerializer.serialize(richTextState.spans))
+                        },
+                        enabled = hasContent
+                    ) {
                         Icon(Icons.Default.Check, "Save")
                     }
                 }
