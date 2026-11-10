@@ -128,7 +128,7 @@ fun NoteEditorScreen(
                             )
                         }) {
                             val tint = if (richTextState.isTypingBold) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                            Text("B", modifier = Modifier.clearAndSetSemantics { contentDescription = "Toggle Bold" }, fontWeight = FontWeight.Bold, fontSize = MaterialTheme.typography.titleLarge.fontSize, color = tint)
+                            Text("B", modifier = Modifier.clearAndSetSemantics { contentDescription = if (richTextState.isTypingBold) "Disable Bold" else "Enable Bold" }, fontWeight = FontWeight.Bold, fontSize = MaterialTheme.typography.titleLarge.fontSize, color = tint)
                         }
                     }
 
@@ -142,7 +142,7 @@ fun NoteEditorScreen(
                             )
                         }) {
                             val tint = if (richTextState.isTypingItalic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                            Text("I", modifier = Modifier.clearAndSetSemantics { contentDescription = "Toggle Italic" }, fontStyle = FontStyle.Italic, fontSize = MaterialTheme.typography.titleLarge.fontSize, fontFamily = FontFamily.Serif, color = tint)
+                            Text("I", modifier = Modifier.clearAndSetSemantics { contentDescription = if (richTextState.isTypingItalic) "Disable Italic" else "Enable Italic" }, fontStyle = FontStyle.Italic, fontSize = MaterialTheme.typography.titleLarge.fontSize, fontFamily = FontFamily.Serif, color = tint)
                         }
                     }
 

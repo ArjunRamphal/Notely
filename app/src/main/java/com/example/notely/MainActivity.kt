@@ -937,6 +937,7 @@ fun SetSelfDestructPinScreen(
         PinKeypad(
             isScrambled = isScrambled,
             enabled = true,
+            hasPin = pin.isNotEmpty(),
             onDigitClick = { digit ->
                 if (pin.length < 4) {
                     if (error != null) viewModel.clearErrorMessage()
@@ -992,6 +993,7 @@ fun ChangePinScreen(
         PinKeypad(
             isScrambled = isScrambled,
             enabled = true,
+            hasPin = pin.isNotEmpty(),
             onDigitClick = { digit ->
                 if (pin.length < 4) {
                     if (error != null) error = null
@@ -1079,6 +1081,7 @@ fun PinScreen(title: String, viewModel: AppViewModel, isSetup: Boolean, isScramb
         PinKeypad(
             isScrambled = isScrambled,
             enabled = !isLockedOut,
+            hasPin = pin.isNotEmpty(),
             onDigitClick = { digit ->
                 if (!isLockedOut && pin.length < 4) {
                     if (error != null) viewModel.clearErrorMessage()
@@ -1138,6 +1141,7 @@ fun PinDisplay(pin: String, isError: Boolean) {
 fun PinKeypad(
     isScrambled: Boolean,
     enabled: Boolean,
+    hasPin: Boolean,
     onDigitClick: (String) -> Unit,
     onBackspaceClick: () -> Unit
 ) {
@@ -1168,7 +1172,7 @@ fun PinKeypad(
                     } else if (key == "DEL") {
                         IconButton(
                             onClick = onBackspaceClick,
-                            enabled = enabled,
+                            enabled = enabled && hasPin,
                             modifier = Modifier.size(64.dp)
                         ) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Backspace")
