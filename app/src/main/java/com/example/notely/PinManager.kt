@@ -303,9 +303,15 @@ class PinManager(context: Context) {
 
     private fun hashPin(pin: String, salt: String): String {
         val saltBytes = Base64.decode(salt, Base64.NO_WRAP)
-        val spec = PBEKeySpec(pin.toCharArray(), saltBytes, ITERATIONS, KEY_LENGTH)
-        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-        val hashBytes = factory.generateSecret(spec).encoded
-        return Base64.encodeToString(hashBytes, Base64.NO_WRAP)
+        val pinChars = pin.toCharArray()
+        val spec = PBEKeySpec(pinChars, saltBytes, ITERATIONS, KEY_LENGTH)
+        try {
+            val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+            val hashBytes = factory.generateSecret(spec).encoded
+            return Base64.encodeToString(hashBytes, Base64.NO_WRAP)
+        } finally {
+            spec.clearPassword()
+            pinChars.fill('\u0000')
+        }
     }
 }
