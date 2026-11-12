@@ -536,9 +536,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun deriveKey(password: String, salt: ByteArray): SecretKey {
-        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-        val spec = PBEKeySpec(password.toCharArray(), salt, ITERATIONS, KEY_SIZE)
-        val tmp = factory.generateSecret(spec)
-        return SecretKeySpec(tmp.encoded, "AES")
+        val passwordChars = password.toCharArray()
+        val spec = PBEKeySpec(passwordChars, salt, ITERATIONS, KEY_SIZE)
+        try {
+            val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+            val tmp = factory.generateSecret(spec)
+            return SecretKeySpec(tmp.encoded, "AES")
+        } finally {
+            spec.clearPassword()
+            passwordChars.fill('\u0000')
+        }
     }
 }
