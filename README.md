@@ -7,6 +7,12 @@
 
 
 
+## Preview
+
+![Notely note card showing rich-text formatting, a favourite indicator and tags](docs/images/note-preview.png)
+
+A note-card capture showing text formatting, tags, the favourite control and a saved timestamp.
+
 ## Key Features
 
 
